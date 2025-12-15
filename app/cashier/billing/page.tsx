@@ -41,7 +41,7 @@ export default function BillingPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [showHeld, setShowHeld] = useState(false);
-const [invoiceData, setInvoiceData] = useState<any | null>(null);
+  const [invoiceData, setInvoiceData] = useState<any | null>(null); // This is the first declaration (Line 44)
 
   useEffect(() => {
     loadProducts('');
@@ -136,7 +136,7 @@ useEffect(() => {
 
   const removeLine = (keyId: string) => setCart((prev) => prev.filter((p) => `${p.product.id}:${p.variant?.id || 'base'}` !== keyId));
 
-  const [invoiceData, setInvoiceData] = useState<any | null>(null);
+  // The duplicate declaration was here on line 139, and it has been removed.
 
   const checkout = async () => {
     setLoading(true);
@@ -258,14 +258,14 @@ useEffect(() => {
     setCouponCode(data.couponCode || '');
     setTaxId(data.taxId || taxId);
     setShowHeld(false);
-  setInvoiceData(null);
-  setMessage(null);
+    setInvoiceData(null);
+    setMessage(null);
   };
 
   return (
     <div className="space-y-6">
-    <div>
-      <h1 className="text-2xl font-semibold">Billing</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">Billing</h1>
         <p className="mt-2 text-gray-600">Add items, apply discounts/coupons, and checkout.</p>
       </div>
 
@@ -536,4 +536,3 @@ useEffect(() => {
     </div>
   );
 }
-
