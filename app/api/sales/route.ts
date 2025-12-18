@@ -77,8 +77,11 @@ export async function POST(req: Request) {
     const clientId = user.clientId as string;
 
     const body = await req.json();
-    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId } = body ?? {};
+    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId, paymentMethod = 'CASH' } = body ?? {};
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'No items' }, { status: 400 });
+    if (!['CASH', 'CARD'].includes(paymentMethod)) {
+      return NextResponse.json({ error: 'Payment method must be CASH or CARD' }, { status: 400 });
+    }
 
     const productIds = items.map((i: LineInput) => i.productId);
     const products = (await (prisma as any).product.findMany({
@@ -91,11 +94,23 @@ export async function POST(req: Request) {
       ? await (prisma as any).coupon.findFirst({ where: { code: couponCode.toUpperCase(), isActive: true } })
       : null;
 
+    // Fetch tax mode from invoice settings FIRST
+    const invoiceSetting = await (prisma as any).invoiceSetting.findUnique({
+      where: { clientId },
+    });
+    const taxMode = (invoiceSetting?.taxMode || 'EXCLUSIVE') as 'EXCLUSIVE' | 'INCLUSIVE';
+
+    // Get default tax slab - always use this for Tax Inclusive mode
+    const defaultTax = await (prisma as any).taxSetting.findFirst({
+      where: { clientId, isDefault: true },
+    });
+
     const tax =
       taxId === 'none'
         ? null
         : (taxId ? await (prisma as any).taxSetting.findUnique({ where: { id: taxId } }) : null) ||
-          (await (prisma as any).taxSetting.findFirst({ where: { clientId, isDefault: true } }));
+          defaultTax ||
+          null;
 
     const itemInputs = (items as LineInput[]).map((line) => {
       const product = productMap.get(line.productId);
@@ -115,13 +130,31 @@ export async function POST(req: Request) {
               value: Number(line.discountValue),
             }
           : null;
-      // determine per-line tax percent if no cart tax is chosen
-      const perLineTaxPercent =
-        taxId && taxId !== 'none'
-          ? undefined
-          : product.defaultTaxId
-          ? Number(product.defaultTax?.percent ?? 0)
-          : 0;
+      
+      // Tax Inclusive mode: Always use default tax slab, ignore product-specific tax
+      let perLineTaxPercent: number | undefined = undefined;
+      if (taxMode === 'INCLUSIVE') {
+        // Use default tax slab rate for all products in Tax Inclusive mode
+        // Always use default tax rate regardless of product-specific tax settings
+        if (defaultTax && !taxId) {
+          perLineTaxPercent = Number(defaultTax.percent);
+        } else if (taxId && taxId !== 'none') {
+          // If cart-level tax is selected, use that (should be default tax in Inclusive mode)
+          perLineTaxPercent = undefined;
+        } else if (defaultTax) {
+          // Fallback to default tax even if no tax selected
+          perLineTaxPercent = Number(defaultTax.percent);
+        }
+      } else {
+        // Tax Exclusive mode: Use product-specific tax if no cart tax
+        perLineTaxPercent =
+          taxId && taxId !== 'none'
+            ? undefined
+            : product.defaultTaxId
+            ? Number(product.defaultTax?.percent ?? 0)
+            : 0;
+      }
+      
       return {
         product,
         quantity: Number(line.quantity) || 1,
@@ -142,6 +175,7 @@ export async function POST(req: Request) {
       cartRule: cartRule as any,
       coupon,
       tax,
+      taxMode,
     });
 
     const orderId = generateOrderId();
@@ -159,6 +193,7 @@ export async function POST(req: Request) {
           taxPercent: totals.taxPercent as any,
           tax: totals.taxAmount as any,
           total: totals.total as any,
+          paymentMethod: paymentMethod,
         },
       });
 
@@ -220,7 +255,21 @@ export async function POST(req: Request) {
       return saleRecord;
     });
 
-    return NextResponse.json({ sale, totals }, { status: 201 });
+    // Fetch the sale with cashier information
+    const saleWithCashier = await prisma.sale.findUnique({
+      where: { id: sale.id },
+      include: {
+        cashier: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+      },
+    });
+
+    return NextResponse.json({ sale: saleWithCashier, totals }, { status: 201 });
   } catch (e: any) {
     console.error('sales error', e);
     return NextResponse.json({ error: e?.message ?? 'Checkout failed' }, { status: 500 });

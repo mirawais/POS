@@ -42,19 +42,24 @@ export function calculateTotals(opts: {
   cartRule?: DiscountRule | null;
   coupon?: Coupon | null;
   tax?: TaxSetting | null;
+  taxMode?: 'EXCLUSIVE' | 'INCLUSIVE'; // Tax pricing mode
 }): TotalsResult {
+  const taxMode = opts.taxMode || 'EXCLUSIVE'; // Default to EXCLUSIVE
   const perItem: TotalsResult['perItem'] = [];
   let subtotal = 0;
   let itemDiscountTotal = 0;
 
   for (const line of opts.items) {
     const unitPrice = line.overridePrice ?? Number(line.product.price);
-    const lineBase = unitPrice * line.quantity;
+    const taxPercent = line.taxPercent ?? 0;
+    
+    // Item total always uses the original display price (Quantity × Price)
+    // Do not change display prices; tax is calculated internally
+    const lineBase = unitPrice * line.quantity; // Item total = Quantity × Price (display price)
     const lineDiscount = line.discountRule && line.discountRule.scope === 'ITEM' ? applyRule(lineBase, line.discountRule) : 0;
     const lineNet = Math.max(0, lineBase - lineDiscount);
     subtotal += lineBase;
     itemDiscountTotal += lineDiscount;
-    const taxPercent = line.taxPercent ?? 0;
     // Get variant name if variantId is provided
     let variantName: string | null = null;
     if (line.variantId && (line.product as any).variants && Array.isArray((line.product as any).variants)) {
@@ -76,10 +81,10 @@ export function calculateTotals(opts: {
       variantId: line.variantId ?? null,
       variantName: variantName,
       quantity: line.quantity,
-      price: unitPrice,
+      price: unitPrice, // Display price (original price - unchanged)
       discount: lineDiscount,
-      tax: 0,
-      total: lineNet,
+      tax: 0, // Will be calculated later based on tax mode
+      total: lineBase, // Item total = Quantity × Price (display price - unchanged)
       taxPercent,
     });
   }
@@ -101,27 +106,69 @@ export function calculateTotals(opts: {
 
   let taxAmount = 0;
   if (cartTaxPercent !== null) {
+    // Cart-level tax
     const taxableBase = Math.max(0, subtotal - discountTotal);
-    taxAmount = (taxableBase * cartTaxPercent) / 100;
-    const allocationBase = perItem.reduce((sum, p) => sum + p.total, 0) || 1;
-    for (const p of perItem) {
-      const share = p.total / allocationBase;
-      p.tax = taxAmount * share;
-      p.total = p.total + p.tax;
-      p.taxPercent = cartTaxPercent;
+    if (taxMode === 'INCLUSIVE') {
+      // Tax Inclusive: Product prices are final (tax included)
+      // Extract tax using reverse calculation: Tax = (Price × DefaultTaxRate) / (100 + DefaultTaxRate)
+      // Always use the cart tax (which should be default tax in Inclusive mode)
+      taxAmount = (taxableBase * cartTaxPercent) / (100 + cartTaxPercent);
+      // Allocate tax proportionally to items
+      const allocationBase = perItem.reduce((sum, p) => sum + p.total, 0) || 1;
+      for (const p of perItem) {
+        const share = p.total / allocationBase;
+        p.tax = taxAmount * share;
+        p.taxPercent = cartTaxPercent;
+      }
+    } else {
+      // Tax Exclusive: Add tax on top
+      taxAmount = (taxableBase * cartTaxPercent) / 100;
+      // Allocate tax proportionally to items
+      const allocationBase = perItem.reduce((sum, p) => sum + p.total, 0) || 1;
+      for (const p of perItem) {
+        const share = p.total / allocationBase;
+        p.tax = taxAmount * share;
+        p.taxPercent = cartTaxPercent;
+      }
     }
   } else {
-    // per-item tax
-    for (const p of perItem) {
-      const base = p.total;
-      const lineTax = (base * p.taxPercent) / 100;
-      p.tax = lineTax;
-      p.total = p.total + lineTax;
-      taxAmount += lineTax;
+    // per-item tax (but in Tax Inclusive mode, all items use default tax)
+    if (taxMode === 'INCLUSIVE') {
+      // Tax Inclusive: Product prices are final (tax included)
+      // Extract tax using reverse calculation: Tax = (Price × DefaultTaxRate) / (100 + DefaultTaxRate)
+      // All items use the same default tax rate (from taxPercent which is set to default tax)
+      for (const p of perItem) {
+        if (p.taxPercent > 0) {
+          // Calculate tax from the item total (which uses display price)
+          // Tax = (Price × DefaultTaxRate) / (100 + DefaultTaxRate)
+          // Always use default tax slab rate for Tax Inclusive mode
+          const lineTax = (p.total * p.taxPercent) / (100 + p.taxPercent);
+          p.tax = lineTax;
+          taxAmount += lineTax;
+        }
+      }
+    } else {
+      // Tax Exclusive: Add tax on top
+      for (const p of perItem) {
+        if (p.taxPercent > 0) {
+          const base = p.total;
+          const lineTax = (base * p.taxPercent) / 100;
+          p.tax = lineTax;
+          taxAmount += lineTax;
+        }
+      }
     }
   }
 
-  const total = Math.max(0, subtotal - discountTotal) + taxAmount;
+  // Final total calculation
+  let total = 0;
+  if (taxMode === 'INCLUSIVE') {
+    // Tax Inclusive: Total = Subtotal - Discount (tax already included)
+    total = Math.max(0, subtotal - discountTotal);
+  } else {
+    // Tax Exclusive: Total = Subtotal - Discount + Tax
+    total = Math.max(0, subtotal - discountTotal) + taxAmount;
+  }
 
   return {
     subtotal,

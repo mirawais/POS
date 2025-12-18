@@ -20,10 +20,61 @@ export async function POST(req: Request) {
   if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const clientId = (session as any).user.clientId as string;
   const body = await req.json();
+  const {
+    logoUrl,
+    headerText,
+    footerText,
+    showTax,
+    showDiscount,
+    showCashier,
+    showCustomer,
+    customFields,
+    taxMode,
+  } = body;
+  
+  // Validate and sort custom fields
+  let processedCustomFields = null;
+  if (customFields && Array.isArray(customFields) && customFields.length > 0) {
+    // Filter out empty fields and sort by sortOrder
+    processedCustomFields = customFields
+      .filter((f: any) => f.label && f.value)
+      .map((f: any) => ({
+        label: String(f.label).trim(),
+        value: String(f.value).trim(),
+        sortOrder: Number(f.sortOrder) || 0,
+      }))
+      .sort((a: any, b: any) => a.sortOrder - b.sortOrder);
+    
+    if (processedCustomFields.length === 0) {
+      processedCustomFields = null;
+    }
+  }
+  
   const setting = await prisma.invoiceSetting.upsert({
     where: { clientId },
-    update: body,
-    create: { clientId, ...body },
+    update: {
+      logoUrl: logoUrl || null,
+      headerText: headerText || null,
+      footerText: footerText || null,
+      showTax: showTax !== false,
+      showDiscount: showDiscount !== false,
+      showCashier: showCashier !== false,
+      showCustomer: showCustomer !== false,
+      customFields: processedCustomFields as any,
+      taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
+    },
+    create: {
+      clientId,
+      logoUrl: logoUrl || null,
+      headerText: headerText || null,
+      footerText: footerText || null,
+      showTax: showTax !== false,
+      showDiscount: showDiscount !== false,
+      showCashier: showCashier !== false,
+      showCustomer: showCustomer !== false,
+      customFields: processedCustomFields as any,
+      taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
+    },
   });
   return NextResponse.json(setting);
 }

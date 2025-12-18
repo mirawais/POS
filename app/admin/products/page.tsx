@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
+import { useToast } from '@/components/notifications/ToastContainer';
 
 type Product = {
   id: string;
@@ -36,6 +37,10 @@ export default function AdminProductsPage() {
   const [selectedMaterials, setSelectedMaterials] = useState<Array<{ id: string; quantity: number; unit: string }>>([]);
   const [variants, setVariants] = useState<Array<{ name: string; attributes: Record<string, string>; price: number; costPrice?: number; sku?: string; stock: number }>>([]);
   const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]); // Selected attribute IDs for this product
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
+  const [bulkUploadType, setBulkUploadType] = useState<'SIMPLE' | 'VARIANT' | 'COMPOSITE'>('SIMPLE');
+  const [uploading, setUploading] = useState(false);
+  const { showSuccess, showError } = useToast();
 
   useEffect(() => {
     loadData();
@@ -192,6 +197,93 @@ export default function AdminProductsPage() {
 
   const defaultCategory: Category | undefined = categories.find((c) => c.name === 'General' || (c as any).isDefault);
 
+  const downloadSampleCSV = () => {
+    let csvContent = '';
+    let filename = '';
+
+    if (bulkUploadType === 'SIMPLE') {
+      filename = 'sample-simple-products.csv';
+      csvContent = 'name,sku,price,costPrice,stock,category,tax,lowStockAt\n' +
+        'Sample Product 1,SKU001,100.00,50.00,100,General,GST,10\n' +
+        'Sample Product 2,SKU002,200.00,100.00,50,General,PST,5';
+    } else if (bulkUploadType === 'VARIANT') {
+      filename = 'sample-variant-products.csv';
+      csvContent = 'name,sku,attributes,price,costPrice,stock,category,tax,variantName,variantSku,lowStockAt\n' +
+        'T-Shirt,TSHIRT001,"Color:Red,Size:L",500.00,250.00,50,General,GST,Red Large,TSHIRT001-RED-L,10\n' +
+        'T-Shirt,TSHIRT002,"Color:Blue,Size:M",500.00,250.00,30,General,GST,Blue Medium,TSHIRT002-BLUE-M,5';
+    } else if (bulkUploadType === 'COMPOSITE') {
+      filename = 'sample-compound-products.csv';
+      csvContent = 'name,sku,rawMaterials,price,costPrice,category,tax,lowStockAt\n' +
+        'Pizza,PIZZA001,"FLOUR001:2:kg,CHEESE001:0.5:kg,TOMATO001:0.3:kg",800.00,400.00,General,GST,10\n' +
+        'Burger,BURGER001,"BREAD001:1:unit,PATTY001:1:unit,LETTUCE001:0.1:kg",600.00,300.00,General,GST,5';
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      showError('Please upload a CSV file');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('productType', bulkUploadType);
+
+      const res = await fetch('/api/products/bulk-upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        showError(result.error || 'Upload failed');
+        if (result.details) {
+          console.error('Upload errors:', result.details);
+        }
+        return;
+      }
+
+      if (result.errors > 0) {
+        const errorMsg = `Upload completed with ${result.errors} error(s). ${result.created} product(s) created successfully.`;
+        showError(errorMsg);
+        if (result.details?.errors) {
+          result.details.errors.forEach((err: string) => {
+            showError(err);
+          });
+        }
+      } else {
+        showSuccess(`Successfully uploaded ${result.created} product(s)!`);
+      }
+
+      // Reload products
+      await loadData(search);
+      
+      // Reset file input
+      e.target.value = '';
+      setShowBulkUpload(false);
+    } catch (err: any) {
+      showError(err.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -199,9 +291,14 @@ export default function AdminProductsPage() {
           <h1 className="text-2xl font-semibold">Products</h1>
           <p className="mt-2 text-gray-600">Manage Simple, Variant, and Compound products.</p>
         </div>
-        <button onClick={() => { setShowForm(!showForm); setEditingProduct(null); setSelectedMaterials([]); setVariants([]); setSelectedAttributes([]); setProductType('SIMPLE'); }} className="px-4 py-2 bg-blue-600 text-white rounded">
-          {showForm ? 'Cancel' : 'Add Product'}
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setShowBulkUpload(!showBulkUpload); setShowForm(false); }} className="px-4 py-2 bg-green-600 text-white rounded">
+            {showBulkUpload ? 'Cancel Upload' : 'Bulk Upload CSV'}
+          </button>
+          <button onClick={() => { setShowForm(!showForm); setEditingProduct(null); setSelectedMaterials([]); setVariants([]); setSelectedAttributes([]); setProductType('SIMPLE'); setShowBulkUpload(false); }} className="px-4 py-2 bg-blue-600 text-white rounded">
+            {showForm ? 'Cancel' : 'Add Product'}
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2">
@@ -216,6 +313,68 @@ export default function AdminProductsPage() {
           className="flex-1 border rounded px-3 py-2"
         />
       </div>
+
+      {showBulkUpload && (
+        <div className="p-4 border rounded bg-white space-y-4">
+          <h2 className="font-semibold text-lg">Bulk Upload Products via CSV</h2>
+          
+          <div className="flex gap-2 border-b">
+            <button
+              type="button"
+              onClick={() => setBulkUploadType('SIMPLE')}
+              className={`px-4 py-2 ${bulkUploadType === 'SIMPLE' ? 'bg-blue-600 text-white' : 'bg-gray-200'} rounded-t`}
+            >
+              Simple Products
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkUploadType('VARIANT')}
+              className={`px-4 py-2 ${bulkUploadType === 'VARIANT' ? 'bg-blue-600 text-white' : 'bg-gray-200'} rounded-t`}
+            >
+              Variant Products
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkUploadType('COMPOSITE')}
+              className={`px-4 py-2 ${bulkUploadType === 'COMPOSITE' ? 'bg-blue-600 text-white' : 'bg-gray-200'} rounded-t`}
+            >
+              Compound Products
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div className="bg-gray-50 p-3 rounded">
+              <p className="text-sm text-gray-700 mb-2">
+                <strong>Instructions:</strong> Download the sample CSV file, fill it with your product data following the format, then upload it.
+              </p>
+              <button
+                type="button"
+                onClick={downloadSampleCSV}
+                className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700"
+              >
+                Download Sample CSV
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Upload CSV File
+              </label>
+              <input
+                type="file"
+                accept=".csv"
+                onChange={handleFileSelect}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                disabled={uploading}
+              />
+            </div>
+
+            {uploading && (
+              <div className="text-blue-600">Uploading and processing CSV...</div>
+            )}
+          </div>
+        </div>
+      )}
 
       {showForm && (
         <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-4">

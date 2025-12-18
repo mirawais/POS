@@ -128,27 +128,56 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const session = await auth();
-  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const clientId = (session as any).user.clientId as string;
-  
-  const { searchParams } = new URL(req.url);
-  const id = searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-  
-  // Verify user belongs to client
-  const existing = await prisma.user.findUnique({ where: { id } });
-  if (!existing || existing.clientId !== clientId) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  try {
+    const session = await auth();
+    if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const clientId = (session as any).user.clientId as string;
+    
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
+    
+    // Verify user belongs to client
+    const existing = await prisma.user.findUnique({ where: { id } });
+    if (!existing || existing.clientId !== clientId) {
+      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    }
+    
+    // Prevent admin from deleting themselves
+    if (existing.id === (session as any).user.id) {
+      return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
+    }
+    
+    // Check if user has related records that would prevent deletion
+    const [salesCount, heldBillsCount, refundsCount] = await Promise.all([
+      prisma.sale.count({ where: { cashierId: id } }),
+      prisma.heldBill.count({ where: { cashierId: id } }),
+      prisma.refund.count({ where: { cashierId: id } }),
+    ]);
+
+    if (salesCount > 0 || heldBillsCount > 0 || refundsCount > 0) {
+      const reasons: string[] = [];
+      if (salesCount > 0) reasons.push(`${salesCount} sale(s)`);
+      if (heldBillsCount > 0) reasons.push(`${heldBillsCount} held bill(s)`);
+      if (refundsCount > 0) reasons.push(`${refundsCount} refund(s)`);
+      
+      return NextResponse.json({ 
+        error: `Cannot delete user. This user has ${reasons.join(', ')} associated with their account. Please reassign or delete these records first.` 
+      }, { status: 400 });
+    }
+    
+    await prisma.user.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    console.error('Delete user error:', e);
+    // Handle Prisma foreign key constraint errors
+    if (e.code === 'P2003' || e.message?.includes('Foreign key constraint')) {
+      return NextResponse.json({ 
+        error: 'Cannot delete user. This user has records (sales, held bills, or refunds) associated with their account. Please reassign or delete these records first.' 
+      }, { status: 400 });
+    }
+    return NextResponse.json({ error: e?.message || 'Failed to delete user' }, { status: 500 });
   }
-  
-  // Prevent admin from deleting themselves
-  if (existing.id === (session as any).user.id) {
-    return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
-  }
-  
-  await prisma.user.delete({ where: { id } });
-  return NextResponse.json({ success: true });
 }
 

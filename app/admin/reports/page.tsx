@@ -11,7 +11,7 @@ export default function ReportsPage() {
   const [orderIdFilter, setOrderIdFilter] = useState('');
   const [expandedSale, setExpandedSale] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<string>('last7days');
-  const [summary, setSummary] = useState<{ totalSales: number; totalTax: number; totalDiscount: number } | null>(null);
+  const [summary, setSummary] = useState<{ totalSales: number; totalTax: number; totalDiscount: number; cashSales: number; cardSales: number } | null>(null);
 
   const applyDateFilter = (filter: string) => {
     const today = new Date();
@@ -72,7 +72,9 @@ export default function ReportsPage() {
       const totalSales = data.reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
       const totalTax = data.reduce((sum: number, sale: any) => sum + Number(sale.tax), 0);
       const totalDiscount = data.reduce((sum: number, sale: any) => sum + Number(sale.discount || 0), 0);
-      setSummary({ totalSales, totalTax, totalDiscount });
+      const cashSales = data.filter((sale: any) => sale.paymentMethod === 'CASH' || !sale.paymentMethod).reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
+      const cardSales = data.filter((sale: any) => sale.paymentMethod === 'CARD').reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
+      setSummary({ totalSales, totalTax, totalDiscount, cashSales, cardSales });
     } catch (err: any) {
       setError(err.message || 'An error occurred while fetching sales data');
     } finally {
@@ -106,11 +108,13 @@ export default function ReportsPage() {
     const itemsHtml = (sale.items || [])
       .map((item: any) => {
         const netQty = item.quantity - (item.returnedQuantity || 0);
+        // Item total = Quantity × Unit Price only (no tax)
+        const itemTotal = Number(item.price) * item.quantity;
         return `<tr>
           <td>${item.product?.name || 'Unknown'}${item.variant ? ` (${item.variant.name})` : ''}</td>
           <td>${item.quantity}${item.returnedQuantity > 0 ? ` (Returned: ${item.returnedQuantity})` : ''}</td>
           <td>Rs. ${Number(item.price).toFixed(2)}</td>
-          <td>Rs. ${Number(item.total).toFixed(2)}</td>
+          <td>Rs. ${itemTotal.toFixed(2)}</td>
         </tr>`;
       })
       .join('');
@@ -139,8 +143,12 @@ export default function ReportsPage() {
             Order ID: ${sale.orderId}<br/>
             ${sale.fbrInvoiceId ? `FBR Invoice ID: ${sale.fbrInvoiceId}<br/>` : ''}
             Date: ${new Date(sale.createdAt).toLocaleString()}<br/>
-            Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}
-            ${sale.type && sale.type !== 'SALE' ? `<br/>Type: ${sale.type}` : ''}
+            ${setting?.showCashier !== false ? `Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}<br/>` : ''}
+            Payment Method: ${sale.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
+            ${sale.type && sale.type !== 'SALE' ? `Type: ${sale.type}<br/>` : ''}
+            ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
+              ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+              : ''}
           </div>
           <table>
             <thead>
@@ -155,8 +163,8 @@ export default function ReportsPage() {
           </table>
           <div class="totals">
             <div><span>Subtotal:</span><span>Rs. ${Number(sale.subtotal).toFixed(2)}</span></div>
-            ${Number(sale.discount) > 0 ? `<div><span>Discount:</span><span>-Rs. ${Number(sale.discount).toFixed(2)}</span></div>` : ''}
-            ${Number(sale.tax) > 0 ? `<div><span>Tax:</span><span>Rs. ${Number(sale.tax).toFixed(2)}</span></div>` : ''}
+            ${setting?.showDiscount !== false && Number(sale.discount) > 0 ? `<div><span>Discount:</span><span>-Rs. ${Number(sale.discount).toFixed(2)}</span></div>` : ''}
+            ${setting?.showTax !== false && Number(sale.tax) > 0 ? `<div><span>Tax:</span><span>Rs. ${Number(sale.tax).toFixed(2)}</span></div>` : ''}
             <div><strong><span>Total:</span><span>Rs. ${Number(sale.total).toFixed(2)}</span></strong></div>
           </div>
           <div class="invoice-footer">
@@ -259,7 +267,7 @@ export default function ReportsPage() {
           )}
         </div>
         {summary && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-blue-50 rounded">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 bg-blue-50 rounded">
             <div>
               <div className="text-sm text-gray-600">Total Sales</div>
               <div className="text-2xl font-bold text-blue-700">
@@ -276,6 +284,18 @@ export default function ReportsPage() {
               <div className="text-sm text-gray-600">Total Discount</div>
               <div className="text-2xl font-bold text-red-700">
                 Rs. {summary.totalDiscount.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Cash Sales</div>
+              <div className="text-2xl font-bold text-yellow-700">
+                Rs. {summary.cashSales.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-600">Card Sales</div>
+              <div className="text-2xl font-bold text-purple-700">
+                Rs. {summary.cardSales.toFixed(2)}
               </div>
             </div>
           </div>

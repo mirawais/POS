@@ -26,6 +26,7 @@ type Sale = {
   total: number;
   couponCode?: string | null;
   couponValue?: number | null;
+  paymentMethod?: string | null;
   fbrInvoiceId?: string | null;
 };
 
@@ -70,11 +71,13 @@ export default function CashierOrdersPage() {
     const itemsHtml = sale.items
       .map((item) => {
         const netQty = item.quantity - (item.returnedQuantity || 0);
+        // Item total = Quantity × Unit Price only (no tax)
+        const itemTotal = Number(item.price) * item.quantity;
         return `<tr>
           <td>${item.product.name}${item.variant ? ` (${item.variant.name})` : ''}</td>
           <td>${item.quantity}${item.returnedQuantity > 0 ? ` (Returned: ${item.returnedQuantity})` : ''}</td>
           <td>Rs. ${Number(item.price).toFixed(2)}</td>
-          <td>Rs. ${Number(item.total).toFixed(2)}</td>
+          <td>Rs. ${itemTotal.toFixed(2)}</td>
         </tr>`;
       })
       .join('');
@@ -103,7 +106,11 @@ export default function CashierOrdersPage() {
             Order ID: ${sale.orderId}<br/>
             ${sale.fbrInvoiceId ? `FBR Invoice ID: ${sale.fbrInvoiceId}<br/>` : ''}
             Date: ${new Date(sale.createdAt).toLocaleString()}<br/>
-            Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}
+            ${setting?.showCashier !== false ? `Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}<br/>` : ''}
+            Payment Method: ${sale.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
+            ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
+              ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+              : ''}
           </div>
           <table>
             <thead>
@@ -118,8 +125,8 @@ export default function CashierOrdersPage() {
           </table>
           <div class="totals">
             <div><span>Subtotal:</span><span>Rs. ${Number(sale.subtotal).toFixed(2)}</span></div>
-            ${Number(sale.discount) > 0 ? `<div><span>Discount:</span><span>-Rs. ${Number(sale.discount).toFixed(2)}</span></div>` : ''}
-            ${Number(sale.tax) > 0 ? `<div><span>Tax:</span><span>Rs. ${Number(sale.tax).toFixed(2)}</span></div>` : ''}
+            ${setting?.showDiscount !== false && Number(sale.discount) > 0 ? `<div><span>Discount:</span><span>-Rs. ${Number(sale.discount).toFixed(2)}</span></div>` : ''}
+            ${setting?.showTax !== false && Number(sale.tax) > 0 ? `<div><span>Tax:</span><span>Rs. ${Number(sale.tax).toFixed(2)}</span></div>` : ''}
             <div><strong><span>Total:</span><span>Rs. ${Number(sale.total).toFixed(2)}</span></strong></div>
           </div>
           <div class="invoice-footer">

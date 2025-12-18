@@ -112,11 +112,12 @@ export default function AdminUsersPage() {
 
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
+    setMessage(null);
     try {
       const res = await fetch(`/api/users?id=${id}`, { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Failed to delete user');
+        throw new Error(data.error || 'Failed to delete user');
       }
       setMessage('User deleted successfully');
       loadUsers();

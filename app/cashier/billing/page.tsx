@@ -42,9 +42,12 @@ export default function BillingPage() {
   const [validatedCoupon, setValidatedCoupon] = useState<any | null>(null);
   const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [taxId, setTaxId] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD'>('CASH');
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [heldBills, setHeldBills] = useState<any[]>([]);
+  const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const { showError, showSuccess, showInfo } = useToast();
   const [showHeld, setShowHeld] = useState(false);
   const [invoiceData, setInvoiceData] = useState<any | null>(null); // This is the first declaration (Line 44)
@@ -141,6 +144,13 @@ export default function BillingPage() {
     loadProducts('');
     loadTaxes();
     loadHeld();
+    // Load tax mode from invoice settings
+    fetch('/api/invoice-settings')
+      .then((r) => r.json())
+      .then((data) => {
+        setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
+      })
+      .catch(() => {});
   }, [loadProducts]);
 
   // Handle loading held bill from Held Bills page
@@ -176,8 +186,10 @@ export default function BillingPage() {
     let couponValue = 0;
 
     cart.forEach((line) => {
+      // Item totals always use the original display price (Quantity × Price)
+      // Do not change display prices; tax is calculated internally
       const unitPrice = line.variant?.price ?? line.product.price;
-      const base = unitPrice * line.quantity;
+      const base = unitPrice * line.quantity; // Item total = Quantity × Price (display price)
       subtotal += base;
       if (line.discountType && line.discountValue) {
         const disc = line.discountType === 'PERCENT' ? (base * line.discountValue) / 100 : line.discountValue * line.quantity;
@@ -200,11 +212,48 @@ export default function BillingPage() {
       }
     }
 
-    const taxPercent = taxes.find((t) => t.id === taxId)?.percent ?? 0;
-    const tax = (Math.max(0, afterDiscount - couponValue) * taxPercent) / 100;
-    const total = Math.max(0, afterDiscount - couponValue) + tax;
-    return { subtotal, itemDiscountTotal, cartDiscountTotal, couponValue, taxPercent, tax, total };
-  }, [cart, cartDiscountType, cartDiscountValue, validatedCoupon, taxes, taxId]);
+    // Tax Inclusive mode: Always use default tax slab, ignore product-specific tax
+    let effectiveTaxPercent = 0;
+    if (taxMode === 'INCLUSIVE') {
+      // In Tax Inclusive mode, always use default tax slab
+      const defaultTax = taxes.find((t) => t.isDefault);
+      if (defaultTax) {
+        // Ensure proper conversion - Prisma Decimal might need explicit Number() conversion
+        effectiveTaxPercent = typeof defaultTax.percent === 'number' 
+          ? defaultTax.percent 
+          : Number(defaultTax.percent);
+      }
+    } else {
+      // Tax Exclusive mode: Use selected tax
+      const selectedTax = taxes.find((t) => t.id === taxId);
+      if (selectedTax) {
+        effectiveTaxPercent = typeof selectedTax.percent === 'number' 
+          ? selectedTax.percent 
+          : Number(selectedTax.percent);
+      }
+    }
+    
+    let tax = 0;
+    let total = 0;
+    
+    const taxableBase = Math.max(0, afterDiscount - couponValue);
+    
+    if (taxMode === 'INCLUSIVE' && effectiveTaxPercent > 0) {
+      // Tax Inclusive: Product prices are final (tax included)
+      // Extract tax using reverse calculation: Tax = (Price × DefaultTaxRate) / (100 + DefaultTaxRate)
+      // Example: (2500 × 5) / (100 + 5) = 12500 / 105 = 119.05
+      // Always use default tax slab rate for Tax Inclusive mode
+      tax = (taxableBase * effectiveTaxPercent) / (100 + effectiveTaxPercent);
+      // Total = Subtotal - Discount (tax already included in prices)
+      total = Math.max(0, afterDiscount - couponValue);
+    } else {
+      // Tax Exclusive: Add tax on top
+      tax = (taxableBase * effectiveTaxPercent) / 100;
+      total = taxableBase + tax;
+    }
+    
+    return { subtotal, itemDiscountTotal, cartDiscountTotal, couponValue, taxPercent: effectiveTaxPercent, tax, total };
+  }, [cart, cartDiscountType, cartDiscountValue, validatedCoupon, taxes, taxId, taxMode]);
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
     // Check stock before adding
@@ -313,7 +362,17 @@ export default function BillingPage() {
   // The duplicate declaration was here on line 139, and it has been removed.
 
   const checkout = async () => {
+    if (cart.length === 0) {
+      showError('Cart is empty');
+      return;
+    }
+    // Show payment method selection modal
+    setShowPaymentModal(true);
+  };
+
+  const confirmCheckout = async () => {
     setLoading(true);
+    setShowPaymentModal(false);
     try {
       const res = await fetch('/api/sales', {
         method: 'POST',
@@ -330,6 +389,7 @@ export default function BillingPage() {
           cartDiscountValue: cartDiscountValue || null,
           couponCode: validatedCoupon?.code || couponCode || null,
           taxId: taxId || null,
+          paymentMethod: paymentMethod,
           heldBillId: currentHeldBillId || null, // Pass held bill ID to delete after checkout
         }),
       });
@@ -409,6 +469,10 @@ export default function BillingPage() {
    * It only prints the invoice with or without FBR ID based on the parameters.
    */
   const printInvoice = async (includeFbrId: boolean = false, fbrIdToDisplay: string | null = null) => {
+    if (!invoiceData?.sale) {
+      showError('No invoice data available');
+      return;
+    }
     const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
     const invoice = invoiceData;
     if (!invoice) return;
@@ -430,8 +494,11 @@ export default function BillingPage() {
     const items =
       invoice?.totals?.perItem
         ?.map(
-          (i: any) =>
-            `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${i.price.toFixed(2)}</td><td>Rs. ${i.total.toFixed(2)}</td></tr>`
+          (i: any) => {
+            // Item total = Quantity × Unit Price only (no tax, no discount)
+            const itemTotal = i.price * i.quantity;
+            return `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${i.price.toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
+          }
         )
         .join('') || '';
     const html = `
@@ -447,7 +514,12 @@ export default function BillingPage() {
           <div style="margin-top:8px;font-size:12px;">
             Order ID: ${invoice.sale?.orderId || 'N/A'}<br/>
             ${fbrId ? `FBR Invoice ID: ${fbrId}<br/>` : ''}
-            Date: ${new Date(invoice.sale?.createdAt || Date.now()).toLocaleString()}
+            Date: ${new Date(invoice.sale?.createdAt || Date.now()).toLocaleString()}<br/>
+            ${setting?.showCashier !== false ? `Cashier: ${invoice.sale?.cashier?.name || invoice.sale?.cashier?.email || 'Unknown'}<br/>` : ''}
+            Payment Method: ${invoice.sale?.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
+            ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
+              ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+              : ''}
           </div>
           <table style="width:100%;font-size:12px;margin-top:8px;">
             <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -455,8 +527,8 @@ export default function BillingPage() {
           </table>
           <div style="margin-top:8px;font-size:12px;">
             Subtotal: Rs. ${invoice.totals.subtotal.toFixed(2)}<br/>
-            Discount: Rs. ${(invoice.totals.itemDiscountTotal + invoice.totals.cartDiscountTotal + invoice.totals.couponValue).toFixed(2)}<br/>
-            Tax: Rs. ${invoice.totals.taxAmount.toFixed(2)}<br/>
+            ${setting?.showDiscount !== false ? `Discount: Rs. ${(invoice.totals.itemDiscountTotal + invoice.totals.cartDiscountTotal + invoice.totals.couponValue).toFixed(2)}<br/>` : ''}
+            ${setting?.showTax !== false ? `Tax: Rs. ${invoice.totals.taxAmount.toFixed(2)}<br/>` : ''}
             <strong>Total: Rs. ${invoice.totals.total.toFixed(2)}</strong>
           </div>
           <div style="text-align:center;margin-top:12px;font-size:12px;">${footer}</div>
@@ -900,6 +972,56 @@ export default function BillingPage() {
           )}
         </div>
       </div>
+
+      {/* Payment Method Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Select Payment Method</h3>
+            <div className="space-y-3 mb-4">
+              <label className="flex items-center p-4 border rounded cursor-pointer hover:bg-gray-50">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="CASH"
+                  checked={paymentMethod === 'CASH'}
+                  onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'CARD')}
+                  className="mr-3"
+                />
+                <span className="text-lg font-medium">Cash</span>
+              </label>
+              <label className="flex items-center p-4 border rounded cursor-pointer hover:bg-gray-50">
+                <input
+                  type="radio"
+                  name="paymentMethod"
+                  value="CARD"
+                  checked={paymentMethod === 'CARD'}
+                  onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'CARD')}
+                  className="mr-3"
+                />
+                <span className="text-lg font-medium">Card</span>
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowPaymentModal(false)}
+                className="px-4 py-2 border rounded hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmCheckout}
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? 'Processing...' : 'Confirm Checkout'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cart Name Prompt Modal */}
       {showCartNamePrompt && (
