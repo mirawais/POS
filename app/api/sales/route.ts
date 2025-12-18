@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { calculateTotals } from '@/lib/pricing';
 import { NextResponse } from 'next/server';
 
+export const dynamic = "force-dynamic";
+
 type LineInput = {
   productId: string;
   variantId?: string | null;

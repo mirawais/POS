@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import https from 'https';
 import { URL } from 'url';
 
+export const dynamic = "force-dynamic";
+
 // Helper function to make HTTPS request with SSL verification disabled
 async function makeFBRRequest(payload: any, apiUrl: string, authToken: string): Promise<{ status: number; data: any }> {
   return new Promise((resolve, reject) => {

@@ -2,6 +2,8 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 
+export const dynamic = "force-dynamic";
+
 // Generate unique refund ID: REF-YYYYMMDD-XXXXX
 function generateRefundId(): string {
   const date = new Date();
