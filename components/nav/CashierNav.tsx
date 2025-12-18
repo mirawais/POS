@@ -7,6 +7,9 @@ import { signOut } from 'next-auth/react';
 const links = [
   { href: '/cashier/billing', label: 'Billing' },
   { href: '/cashier/held-bills', label: 'Held Bills' },
+  { href: '/cashier/orders', label: 'Orders' },
+  { href: '/cashier/exchanges', label: 'Returns/Exchanges' },
+  { href: '/cashier/refunds', label: 'Refunds' },
   { href: '/cashier/summary', label: 'Summary' },
 ];
 

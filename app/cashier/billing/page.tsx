@@ -1,7 +1,8 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useToast } from '@/components/notifications/ToastContainer';
 
 type ProductVariant = {
   id: string;
@@ -35,32 +36,123 @@ export default function BillingPage() {
   const [cartDiscountType, setCartDiscountType] = useState<'PERCENT' | 'AMOUNT'>('AMOUNT');
   const [cartDiscountValue, setCartDiscountValue] = useState<number>(0);
   const [couponCode, setCouponCode] = useState('');
+  const [validatedCoupon, setValidatedCoupon] = useState<any | null>(null);
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
   const [taxId, setTaxId] = useState<string>('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [heldBills, setHeldBills] = useState<any[]>([]);
+  const { showError, showSuccess, showInfo } = useToast();
   const [showHeld, setShowHeld] = useState(false);
   const [invoiceData, setInvoiceData] = useState<any | null>(null); // This is the first declaration (Line 44)
+  const [currentHeldBillId, setCurrentHeldBillId] = useState<string | null>(null);
+  const [showCartNamePrompt, setShowCartNamePrompt] = useState(false);
+  const [cartName, setCartName] = useState('');
+  const [isLoadedCart, setIsLoadedCart] = useState(false); // Track if current cart was loaded from saved carts
+
+  const loadProducts = useCallback(async (term: string) => {
+    const p = await fetch(`/api/products${term ? `?search=${encodeURIComponent(term)}` : ''}`).then((r) => r.json());
+    setProducts(p);
+  }, []);
+
+  const loadHeldBill = useCallback(async (bill: any) => {
+    try {
+      const data = bill.data || {};
+      const savedCart = data.cart || [];
+      
+      // Reconstruct cart with full product objects
+      // Get current products - if empty, fetch them
+      let currentProducts = products;
+      if (currentProducts.length === 0) {
+        const productsData = await fetch('/api/products').then((r) => r.json());
+        currentProducts = productsData;
+        setProducts(productsData);
+      }
+      
+      const reconstructedCart: CartLine[] = [];
+      
+      for (const item of savedCart) {
+        // If item already has full product object, use it
+        if (item.product && item.product.id) {
+          // Verify product still exists in current product list
+          const currentProduct = currentProducts.find((p: Product) => p.id === item.product.id);
+          if (currentProduct) {
+            let variant: ProductVariant | undefined;
+            if (item.variant && item.variant.id) {
+              variant = currentProduct.variants?.find((v: ProductVariant) => v.id === item.variant.id);
+            }
+            
+            reconstructedCart.push({
+              product: currentProduct,
+              quantity: item.quantity || 1,
+              discountType: item.discountType,
+              discountValue: item.discountValue,
+              variant,
+            });
+          }
+        } else if (item.productId) {
+          // Fetch product details if only ID is available
+          const product = currentProducts.find((p: Product) => p.id === item.productId);
+          if (product) {
+            let variant: ProductVariant | undefined;
+            if (item.variantId && product.variants) {
+              variant = product.variants.find((v: ProductVariant) => v.id === item.variantId);
+            }
+            
+            reconstructedCart.push({
+              product,
+              quantity: item.quantity || 1,
+              discountType: item.discountType,
+              discountValue: item.discountValue,
+              variant,
+            });
+          }
+        }
+      }
+      
+      if (reconstructedCart.length === 0 && savedCart.length > 0) {
+        showError('Some products in the saved cart are no longer available');
+      }
+      
+      setCart(reconstructedCart);
+      setCartDiscountType(data.cartDiscountType || 'AMOUNT');
+      setCartDiscountValue(data.cartDiscountValue || 0);
+      setCouponCode(data.couponCode || '');
+      setValidatedCoupon(null); // Will be re-validated if user wants to apply
+      setTaxId(data.taxId || taxId);
+      setCurrentHeldBillId(bill.id); // Track which held bill is currently loaded
+      setIsLoadedCart(true); // Mark that this is a loaded cart, so saves will update it
+      setCartName(data.label || ''); // Preserve cart name if it exists
+      setShowHeld(false);
+      setInvoiceData(null);
+      
+      if (reconstructedCart.length > 0) {
+        showSuccess('Cart loaded successfully');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to load cart');
+    }
+  }, [taxId, products, showSuccess, showError]);
 
   useEffect(() => {
     loadProducts('');
     loadTaxes();
     loadHeld();
-  }, []);
+  }, [loadProducts]);
 
-// Reset success/print when cart changes after a completed sale
-useEffect(() => {
-  if (invoiceData && cart.length > 0) {
-    setInvoiceData(null);
-    setMessage(null);
-  }
-}, [cart]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Handle loading held bill from Held Bills page
+  useEffect(() => {
+    const loadHeldBillId = sessionStorage.getItem('loadHeldBillId');
+    if (loadHeldBillId && heldBills.length > 0 && products.length > 0) {
+      sessionStorage.removeItem('loadHeldBillId');
+      const bill = heldBills.find(b => b.id === loadHeldBillId);
+      if (bill) {
+        loadHeldBill(bill);
+      }
+    }
+  }, [heldBills, products, loadHeldBill]);
 
-  const loadProducts = async (term: string) => {
-    const p = await fetch(`/api/products${term ? `?search=${encodeURIComponent(term)}` : ''}`).then((r) => r.json());
-    setProducts(p);
-  };
+// Note: Invoice data is now only cleared when "New Order" is clicked, not automatically
   const loadTaxes = async () => {
     const t = await fetch('/api/taxes').then((r) => r.json());
     const withNoTax = [{ id: 'none', name: 'No Tax', percent: 0, isDefault: false }, ...t];
@@ -71,6 +163,7 @@ useEffect(() => {
   const loadHeld = async () => {
     const hb = await fetch('/api/held-bills').then((r) => r.json());
     setHeldBills(hb);
+    return hb;
   };
 
   const totals = useMemo(() => {
@@ -95,23 +188,48 @@ useEffect(() => {
     }
 
     const afterDiscount = Math.max(0, subtotal - itemDiscountTotal - cartDiscountTotal);
-    if (couponCode) {
-      // client-side estimate only; server validates coupon on submit
-      // assume percent if startswith P or endswith % for a hint, else amount
-      const couponPercent = couponCode.endsWith('%') || couponCode.toUpperCase().includes('P');
-      couponValue = couponPercent ? (afterDiscount * 10) / 100 : 0; // rough hint, server authoritative
+    if (validatedCoupon) {
+      // Calculate coupon discount based on validated coupon
+      if (validatedCoupon.type === 'PERCENT') {
+        couponValue = (afterDiscount * Number(validatedCoupon.value)) / 100;
+      } else {
+        couponValue = Number(validatedCoupon.value);
+      }
     }
 
     const taxPercent = taxes.find((t) => t.id === taxId)?.percent ?? 0;
     const tax = (Math.max(0, afterDiscount - couponValue) * taxPercent) / 100;
     const total = Math.max(0, afterDiscount - couponValue) + tax;
     return { subtotal, itemDiscountTotal, cartDiscountTotal, couponValue, taxPercent, tax, total };
-  }, [cart, cartDiscountType, cartDiscountValue, couponCode, taxes, taxId]);
+  }, [cart, cartDiscountType, cartDiscountValue, validatedCoupon, taxes, taxId]);
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
+    // Check stock before adding
+    let availableStock = 0;
+    if (product.type === 'SIMPLE') {
+      availableStock = product.stock || 0;
+    } else if (product.type === 'VARIANT' && variant) {
+      availableStock = variant.stock || 0;
+    } else if (product.type === 'COMPOSITE') {
+      // For composite products, check raw material availability
+      // This is a simplified check - in production, you'd check all materials
+      availableStock = product.stock || 0;
+    }
+
+    // Check current cart quantity
+    const key = `${product.id}:${variant?.id || 'base'}`;
+    const existing = cart.find((p) => `${p.product.id}:${p.variant?.id || 'base'}` === key);
+    const currentQty = existing ? existing.quantity : 0;
+    const requestedQty = currentQty + 1;
+
+    if (requestedQty > availableStock) {
+      showError(
+        `Insufficient stock! Available: ${availableStock}, Requested: ${requestedQty}. Product: ${product.name}${variant ? ` (${variant.name})` : ''}`
+      );
+      return;
+    }
+
     setCart((prev) => {
-      const key = `${product.id}:${variant?.id || 'base'}`;
-      const existing = prev.find((p) => `${p.product.id}:${p.variant?.id || 'base'}` === key);
       if (existing) {
         return prev.map((p) => (`${p.product.id}:${p.variant?.id || 'base'}` === key ? { ...p, quantity: p.quantity + 1 } : p));
       }
@@ -123,7 +241,29 @@ useEffect(() => {
   };
 
   const updateQuantity = (keyId: string, qty: number) => {
-    setCart((prev) => prev.map((p) => (`${p.product.id}:${p.variant?.id || 'base'}` === keyId ? { ...p, quantity: Math.max(1, qty) } : p)));
+    setCart((prev) => {
+      const item = prev.find((p) => `${p.product.id}:${p.variant?.id || 'base'}` === keyId);
+      if (!item) return prev;
+
+      // Check stock
+      let availableStock = 0;
+      if (item.product.type === 'SIMPLE') {
+        availableStock = item.product.stock || 0;
+      } else if (item.product.type === 'VARIANT' && item.variant) {
+        availableStock = item.variant.stock || 0;
+      } else if (item.product.type === 'COMPOSITE') {
+        availableStock = item.product.stock || 0;
+      }
+
+      if (qty > availableStock) {
+        showError(
+          `Insufficient stock! Available: ${availableStock}, Requested: ${qty}. Product: ${item.product.name}${item.variant ? ` (${item.variant.name})` : ''}`
+        );
+        return prev;
+      }
+
+      return prev.map((p) => (`${p.product.id}:${p.variant?.id || 'base'}` === keyId ? { ...p, quantity: Math.max(1, qty) } : p));
+    });
   };
 
   const updateItemDiscount = (keyId: string, discountType: 'PERCENT' | 'AMOUNT', value: number) => {
@@ -136,11 +276,41 @@ useEffect(() => {
 
   const removeLine = (keyId: string) => setCart((prev) => prev.filter((p) => `${p.product.id}:${p.variant?.id || 'base'}` !== keyId));
 
+  const applyCoupon = async () => {
+    if (!couponCode.trim()) {
+      showError('Please enter a coupon code');
+      return;
+    }
+    
+    setApplyingCoupon(true);
+    try {
+      const res = await fetch(`/api/coupons/validate?code=${encodeURIComponent(couponCode.trim())}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Invalid coupon code');
+      }
+      const coupon = await res.json();
+      setValidatedCoupon(coupon);
+      showSuccess(`Coupon "${coupon.code}" applied successfully!`);
+    } catch (err: any) {
+      showError(err.message || 'Failed to validate coupon code');
+      setValidatedCoupon(null);
+    } finally {
+      setApplyingCoupon(false);
+    }
+  };
+
+  // Clear validated coupon when coupon code changes
+  useEffect(() => {
+    if (couponCode !== validatedCoupon?.code) {
+      setValidatedCoupon(null);
+    }
+  }, [couponCode, validatedCoupon?.code]);
+
   // The duplicate declaration was here on line 139, and it has been removed.
 
   const checkout = async () => {
     setLoading(true);
-    setMessage(null);
     try {
       const res = await fetch('/api/sales', {
         method: 'POST',
@@ -155,59 +325,136 @@ useEffect(() => {
           })),
           cartDiscountType: cartDiscountValue ? cartDiscountType : null,
           cartDiscountValue: cartDiscountValue || null,
-          couponCode: couponCode || null,
+          couponCode: validatedCoupon?.code || couponCode || null,
           taxId: taxId || null,
+          heldBillId: currentHeldBillId || null, // Pass held bill ID to delete after checkout
         }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Checkout failed');
       }
+      // Remove held bill from list if it was checked out
+      if (currentHeldBillId) {
+        setHeldBills((prev) => prev.filter((b) => b.id !== currentHeldBillId));
+        setCurrentHeldBillId(null);
+      }
       setCart([]);
       setCouponCode('');
+      setValidatedCoupon(null);
       setCartDiscountValue(0);
       const data = await res.json();
       setInvoiceData(data);
-      setMessage(`Sale recorded. Total: $${Number(data?.totals?.total ?? 0).toFixed(2)}`);
+      showSuccess(`Sale recorded. Total: Rs. ${Number(data?.totals?.total ?? 0).toFixed(2)}`);
     } catch (e: any) {
-      setMessage(e.message || 'Checkout failed');
+      showError(e.message || 'Checkout failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const printInvoice = async () => {
+  const [fbrLoading, setFbrLoading] = useState(false);
+  const [fbrInvoiceId, setFbrInvoiceId] = useState<string | null>(null);
+
+  const sendToFBR = async (): Promise<string | null> => {
+    if (!invoiceData?.sale?.id) {
+      showError('No sale data available');
+      return null;
+    }
+
+    // Check if FBR Invoice ID already exists
+    if (invoiceData.sale?.fbrInvoiceId || fbrInvoiceId) {
+      return invoiceData.sale?.fbrInvoiceId || fbrInvoiceId;
+    }
+
+    setFbrLoading(true);
+    try {
+      const res = await fetch(`/api/sales/${invoiceData.sale.id}/fbr`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'FBR integration failed');
+      }
+
+      const data = await res.json();
+      const newFbrId = data.fbrInvoiceId;
+      setFbrInvoiceId(newFbrId);
+      // Update invoice data with FBR Invoice ID
+      setInvoiceData({
+        ...invoiceData,
+        sale: { ...invoiceData.sale, fbrInvoiceId: newFbrId },
+      });
+      showSuccess(`FBR Invoice generated successfully! Invoice ID: ${newFbrId}`);
+      return newFbrId;
+    } catch (e: any) {
+      showError(e.message || 'FBR integration failed');
+      return null;
+    } finally {
+      setFbrLoading(false);
+    }
+  };
+
+  /**
+   * Print Invoice function
+   * @param includeFbrId - Set to true only when "Print FBR Invoice" is clicked
+   * @param fbrIdToDisplay - FBR Invoice ID from FBR API response (only provided when includeFbrId is true)
+   * 
+   * This function does NOT send data to FBR API.
+   * It only prints the invoice with or without FBR ID based on the parameters.
+   */
+  const printInvoice = async (includeFbrId: boolean = false, fbrIdToDisplay: string | null = null) => {
     const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
     const invoice = invoiceData;
     if (!invoice) return;
-    const win = window.open('', 'PRINT', 'height=650,width=400');
+    
+    // Use unique window name to allow multiple prints
+    const win = window.open('', `PRINT_${Date.now()}`, 'height=650,width=400');
     if (!win) return;
+    
     const logo = setting?.logoUrl ? `<img src=\"${setting.logoUrl}\" style=\"max-width:150px;\" />` : '';
     const header = setting?.headerText ? `<div>${setting.headerText}</div>` : '';
     const footer = setting?.footerText ? `<div>${setting.footerText}</div>` : '';
+    
+    // CRITICAL: Only show FBR ID if BOTH conditions are met:
+    // 1. includeFbrId is true (only set by "Print FBR Invoice" button)
+    // 2. fbrIdToDisplay is provided (the actual FBR Invoice ID from API response)
+    // This ensures "Print Invoice" button NEVER shows FBR ID
+    const fbrId = includeFbrId && fbrIdToDisplay ? fbrIdToDisplay : null;
+    
     const items =
       invoice?.totals?.perItem
         ?.map(
           (i: any) =>
-            `<tr><td>${i.productId}</td><td>${i.quantity}</td><td>${i.price.toFixed(2)}</td><td>${i.total.toFixed(2)}</td></tr>`
+            `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${i.price.toFixed(2)}</td><td>Rs. ${i.total.toFixed(2)}</td></tr>`
         )
         .join('') || '';
     const html = `
       <html>
+        <head>
+          <title>Invoice ${invoice.sale?.orderId || 'N/A'}</title>
+        </head>
         <body>
           <div style="text-align:center;">
             ${logo}
             ${header}
+          </div>
+          <div style="margin-top:8px;font-size:12px;">
+            Order ID: ${invoice.sale?.orderId || 'N/A'}<br/>
+            ${fbrId ? `FBR Invoice ID: ${fbrId}<br/>` : ''}
+            Date: ${new Date(invoice.sale?.createdAt || Date.now()).toLocaleString()}
           </div>
           <table style="width:100%;font-size:12px;margin-top:8px;">
             <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
             <tbody>${items}</tbody>
           </table>
           <div style="margin-top:8px;font-size:12px;">
-            Subtotal: ${invoice.totals.subtotal.toFixed(2)}<br/>
-            Discount: ${(invoice.totals.itemDiscountTotal + invoice.totals.cartDiscountTotal + invoice.totals.couponValue).toFixed(2)}<br/>
-            Tax: ${invoice.totals.taxAmount.toFixed(2)}<br/>
-            <strong>Total: ${invoice.totals.total.toFixed(2)}</strong>
+            Subtotal: Rs. ${invoice.totals.subtotal.toFixed(2)}<br/>
+            Discount: Rs. ${(invoice.totals.itemDiscountTotal + invoice.totals.cartDiscountTotal + invoice.totals.couponValue).toFixed(2)}<br/>
+            Tax: Rs. ${invoice.totals.taxAmount.toFixed(2)}<br/>
+            <strong>Total: Rs. ${invoice.totals.total.toFixed(2)}</strong>
           </div>
           <div style="text-align:center;margin-top:12px;font-size:12px;">${footer}</div>
         </body>
@@ -217,55 +464,133 @@ useEffect(() => {
     win.document.close();
     win.focus();
     win.print();
-    win.close();
+    // Don't close immediately - let user cancel print dialog if needed
+    setTimeout(() => {
+      try {
+        win.close();
+      } catch (e) {
+        // Ignore if window already closed
+      }
+    }, 1000);
   };
 
-  const saveCart = async () => {
+  /**
+   * Print FBR Invoice function
+   * This function:
+   * 1. Sends order data to FBR API
+   * 2. Receives FBR Invoice Number/USIN from FBR API response
+   * 3. Displays the FBR Invoice Number on the printed invoice
+   * 
+   * This is ONLY called when "Print FBR Invoice" button is clicked.
+   */
+  const printFBRInvoice = async () => {
+    if (!invoiceData?.sale?.id) {
+      showError('No sale data available');
+      return;
+    }
+
+    // Step 1: Send order data to FBR API and receive FBR Invoice Number
+    const fbrId = await sendToFBR();
+    
+    if (fbrId) {
+      // Step 2: Wait a moment for state to update, then print with FBR ID
+      setTimeout(() => {
+        // Get the latest FBR ID from state (may have been updated by sendToFBR)
+        const currentFbrId = invoiceData?.sale?.fbrInvoiceId || fbrInvoiceId || fbrId;
+        // Step 3: Print invoice with FBR Invoice Number displayed
+        printInvoice(true, currentFbrId);
+      }, 500);
+    } else {
+      showError('Failed to generate FBR Invoice. Cannot print.');
+    }
+  };
+
+  const startNewOrder = () => {
+    setCart([]);
+    setCouponCode('');
+    setValidatedCoupon(null);
+    setCartDiscountValue(0);
+    setInvoiceData(null);
+    setFbrInvoiceId(null);
+    setCurrentHeldBillId(null);
+    setIsLoadedCart(false); // Clear loaded cart flag
+  };
+
+  const handleSaveCartClick = () => {
     if (cart.length === 0) {
-      setMessage('Nothing to save');
+      showError('Nothing to save');
+      return;
+    }
+    // Always show prompt for cart name
+    // Only pre-fill if we're updating a cart that was explicitly loaded from saved carts
+    // We track this with a flag to distinguish between "loaded cart" vs "newly saved cart"
+    if (currentHeldBillId && isLoadedCart) {
+      const existingBill = heldBills.find(b => b.id === currentHeldBillId);
+      const existingLabel = existingBill?.data?.label || '';
+      setCartName(existingLabel);
+    } else {
+      setCartName('');
+    }
+    setShowCartNamePrompt(true);
+  };
+
+  const saveCart = async (name?: string) => {
+    if (cart.length === 0) {
+      showError('Nothing to save');
       return;
     }
     setLoading(true);
     try {
+      // If updating existing loaded cart, preserve existing label unless new name provided
+      const existingLabel = (currentHeldBillId && isLoadedCart) ? heldBills.find(b => b.id === currentHeldBillId)?.data?.label : null;
       const payload = {
         cart,
         cartDiscountType,
         cartDiscountValue,
-        couponCode,
+        couponCode: validatedCoupon?.code || couponCode || null,
         taxId,
+        label: name || cartName || existingLabel || `Cart ${new Date().toLocaleString()}`,
       };
+      // Only pass id if we're updating a loaded cart, otherwise create new
       const res = await fetch('/api/held-bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload }),
+        body: JSON.stringify({ data: payload, id: (currentHeldBillId && isLoadedCart) ? currentHeldBillId : undefined }), // Update only if loaded cart
       });
       if (!res.ok) throw new Error('Failed to save cart');
       const saved = await res.json();
-      setHeldBills((prev) => [saved, ...prev]);
-      setMessage('Cart saved.');
+      if (currentHeldBillId && isLoadedCart) {
+        // Update existing loaded cart
+        setHeldBills((prev) => prev.map((b) => (b.id === currentHeldBillId ? saved : b)));
+      } else {
+        // Create new cart - don't set currentHeldBillId so next save creates another new cart
+        setHeldBills((prev) => [saved, ...prev]);
+        setCurrentHeldBillId(null); // Clear so next save creates a new cart
+        setIsLoadedCart(false); // Mark as not a loaded cart
+      }
+      showSuccess('Cart saved successfully');
+      setShowCartNamePrompt(false);
+      setCartName('');
     } catch (e: any) {
-      setMessage(e.message || 'Save cart failed');
+      showError(e.message || 'Save cart failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadHeldBill = (bill: any) => {
-    const data = bill.data || {};
-    setCart(data.cart || []);
-    setCartDiscountType(data.cartDiscountType || 'AMOUNT');
-    setCartDiscountValue(data.cartDiscountValue || 0);
-    setCouponCode(data.couponCode || '');
-    setTaxId(data.taxId || taxId);
-    setShowHeld(false);
-    setInvoiceData(null);
-    setMessage(null);
+  const handleCartNameSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cartName.trim()) {
+      showError('Please enter a cart name');
+      return;
+    }
+    saveCart(cartName.trim());
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Billing</h1>
+    <div>
+      <h1 className="text-2xl font-semibold">Billing</h1>
         <p className="mt-2 text-gray-600">Add items, apply discounts/coupons, and checkout.</p>
       </div>
 
@@ -295,45 +620,13 @@ useEffect(() => {
                 loadProducts(term);
               }}
             />
-            <button
-              type="button"
-              onClick={saveCart}
-              className="text-sm px-3 py-1 border rounded hover:bg-gray-50"
-              disabled={loading || cart.length === 0}
-            >
-              Save Cart
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowHeld((v) => !v)}
-              className="text-sm px-3 py-1 border rounded hover:bg-gray-50"
-            >
-              {showHeld ? 'Hide Saved' : 'Saved Carts'}
-            </button>
           </div>
-          {showHeld && (
-            <div className="border rounded p-2 max-h-48 overflow-auto space-y-1">
-              {heldBills.map((b) => (
-                <div key={b.id} className="flex items-center justify-between text-sm">
-                  <div>
-                    Saved at {new Date(b.createdAt).toLocaleString()}
-                  </div>
-                  <div className="flex gap-2">
-                    <button className="px-2 py-1 border rounded" onClick={() => loadHeldBill(b)}>
-                      Load
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {heldBills.length === 0 && <p className="text-xs text-gray-500">No saved carts.</p>}
-            </div>
-          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {products.map((p) => (
               <div key={p.id} className="border rounded px-3 py-2 text-left">
                 <div className="font-medium">{p.name}</div>
                 <div className="text-xs text-gray-500">{p.sku}</div>
-                <div className="text-sm text-gray-700">${Number(p.price).toFixed(2)}</div>
+                <div className="text-sm text-gray-700">Rs. {Number(p.price).toFixed(2)}</div>
                 {p.variants && p.variants.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {p.variants.map((v) => {
@@ -347,7 +640,7 @@ useEffect(() => {
                           className="text-xs px-2 py-1 border rounded hover:border-blue-500"
                           onClick={() => addToCart(p, v)}
                         >
-                          {v.name || 'Variant'} {attrStr ? `(${attrStr})` : ''} - ${Number(v.price).toFixed(2)}
+                          {v.name || 'Variant'} {attrStr ? `(${attrStr})` : ''} - Rs. {Number(v.price).toFixed(2)}
                         </button>
                       );
                     })}
@@ -372,7 +665,7 @@ useEffect(() => {
             <div className="flex gap-2">
               <button
                 type="button"
-                onClick={saveCart}
+                onClick={handleSaveCartClick}
                 className="text-sm px-3 py-1 border rounded hover:bg-gray-50"
                 disabled={loading || cart.length === 0}
               >
@@ -387,6 +680,31 @@ useEffect(() => {
               </button>
             </div>
           </div>
+          {showHeld && (
+            <div className="border rounded p-2 max-h-48 overflow-auto space-y-1">
+              {heldBills.map((b) => {
+                const cartLabel = (b.data as any)?.label;
+                return (
+                  <div key={b.id} className="flex items-center justify-between text-sm">
+                    <div>
+                      {cartLabel ? (
+                        <div className="font-medium">{cartLabel}</div>
+                      ) : null}
+                      <div className="text-xs text-gray-500">
+                        Saved at {new Date(b.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button className="px-2 py-1 border rounded" onClick={() => loadHeldBill(b)}>
+                        Load
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              {heldBills.length === 0 && <p className="text-xs text-gray-500">No saved carts.</p>}
+            </div>
+          )}
           <div className="space-y-2">
             {cart.map((line) => (
               <div key={`${line.product.id}:${line.variant?.id || 'base'}`} className="border rounded px-2 py-2">
@@ -402,7 +720,7 @@ useEffect(() => {
                               .map(([k, v]) => `${k}: ${v}`)
                               .join(', ')})`
                           : ''}{' '}
-                        @ ${Number(line.variant.price).toFixed(2)}
+                        @ Rs. {Number(line.variant.price).toFixed(2)}
                       </div>
                     )}
                   </div>
@@ -453,10 +771,11 @@ useEffect(() => {
                 className="px-3 py-1 border rounded text-sm"
                 onClick={() => {
                   setCart([]);
-                  setInvoiceData(null);
-                  setMessage(null);
+                  // Don't clear invoiceData here - only clear on "New Order"
+                  setCurrentHeldBillId(null);
+                  setIsLoadedCart(false);
                 }}
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || !!invoiceData}
               >
                 Clear Cart
               </button>
@@ -485,15 +804,37 @@ useEffect(() => {
                 </div>
               </label>
             </div>
-            <label className="space-y-1 block">
-              <span className="text-sm text-gray-700">Coupon code</span>
-              <input
-                className="w-full border rounded px-2 py-1 text-sm"
-                value={couponCode}
-                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                placeholder="e.g. SAVE10"
-              />
-            </label>
+            <div className="space-y-1">
+              <label className="block text-sm text-gray-700">Coupon code</label>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 border rounded px-2 py-1 text-sm"
+                  value={couponCode}
+                  onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      applyCoupon();
+                    }
+                  }}
+                  placeholder="e.g. SAVE10"
+                />
+                <button
+                  type="button"
+                  onClick={applyCoupon}
+                  disabled={applyingCoupon || !couponCode.trim()}
+                  className="px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                  title="Apply coupon code"
+                >
+                  {applyingCoupon ? '...' : validatedCoupon ? '✓' : 'Apply'}
+                </button>
+              </div>
+              {validatedCoupon && (
+                <div className="text-xs text-green-600 mt-1">
+                  ✓ {validatedCoupon.code} applied: {validatedCoupon.type === 'PERCENT' ? `${validatedCoupon.value}%` : `Rs. ${Number(validatedCoupon.value).toFixed(2)}`} off
+                </div>
+              )}
+            </div>
             <label className="space-y-1 block">
               <span className="text-sm text-gray-700">Tax</span>
               <select className="w-full border rounded px-2 py-1 text-sm" value={taxId} onChange={(e) => setTaxId(e.target.value)}>
@@ -507,32 +848,97 @@ useEffect(() => {
           </div>
 
           <div className="border-t pt-3 space-y-1 text-sm">
-            <div className="flex justify-between"><span>Subtotal</span><span>${totals.subtotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Item discounts</span><span>- ${totals.itemDiscountTotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Cart discount</span><span>- ${totals.cartDiscountTotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Coupon (est.)</span><span>- ${totals.couponValue.toFixed(2)}</span></div>
-            <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ ${totals.tax.toFixed(2)}</span></div>
-            <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>${totals.total.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span>Subtotal</span><span>Rs. {totals.subtotal.toFixed(2)}</span></div>
+            <div className="flex justify-between text-amber-700"><span>Item discounts</span><span>- Rs. {totals.itemDiscountTotal.toFixed(2)}</span></div>
+            <div className="flex justify-between text-amber-700"><span>Cart discount</span><span>- Rs. {totals.cartDiscountTotal.toFixed(2)}</span></div>
+            {totals.couponValue > 0 && (
+              <div className="flex justify-between text-amber-700">
+                <span>Coupon {validatedCoupon ? `(${validatedCoupon.code})` : '(est.)'}</span>
+                <span>- Rs. {totals.couponValue.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ Rs. {totals.tax.toFixed(2)}</span></div>
+            <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>Rs. {totals.total.toFixed(2)}</span></div>
           </div>
 
-          <button
-            disabled={loading || cart.length === 0}
-            onClick={checkout}
-            className="w-full mt-2 px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
-          >
-            {loading ? 'Processing...' : 'Checkout'}
-          </button>
-          {invoiceData && (
+          <div className="flex gap-2">
             <button
-              onClick={printInvoice}
-              className="w-full mt-2 px-4 py-2 bg-gray-700 text-white rounded"
+              disabled={loading || cart.length === 0}
+              onClick={checkout}
+              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
             >
-              Print Invoice
+              {loading ? 'Processing...' : 'Checkout'}
             </button>
+            {invoiceData && (
+              <button
+                onClick={startNewOrder}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+              >
+                New Order
+              </button>
+            )}
+          </div>
+          {invoiceData && (
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => printInvoice(false)}
+                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800"
+              >
+                Print Invoice
+              </button>
+              <button
+                onClick={printFBRInvoice}
+                disabled={fbrLoading}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              >
+                {fbrLoading ? 'Processing...' : 'Print FBR Invoice'}
+              </button>
+            </div>
           )}
-          {message && <p className="text-sm mt-2">{message}</p>}
         </div>
       </div>
+
+      {/* Cart Name Prompt Modal */}
+      {showCartNamePrompt && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Save Cart</h3>
+            <form onSubmit={handleCartNameSubmit}>
+              <div className="mb-4">
+                <label className="block text-sm text-gray-700 mb-2">Enter Cart Name *</label>
+                <input
+                  type="text"
+                  value={cartName}
+                  onChange={(e) => setCartName(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  placeholder="e.g. Customer Order, Morning Sale"
+                  autoFocus
+                  required
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCartNamePrompt(false);
+                    setCartName('');
+                  }}
+                  className="px-4 py-2 border rounded hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || !cartName.trim()}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {loading ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

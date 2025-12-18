@@ -19,12 +19,14 @@ type Product = {
 type Category = { id: string; name: string };
 type Tax = { id: string; name: string; percent: number };
 type RawMaterial = { id: string; name: string; sku: string; unit?: string | null };
+type VariantAttribute = { id: string; name: string; values: string[] };
 
 export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [taxes, setTaxes] = useState<Tax[]>([]);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [variantAttributes, setVariantAttributes] = useState<VariantAttribute[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -32,6 +34,8 @@ export default function AdminProductsPage() {
   const [search, setSearch] = useState('');
   const [materialSearch, setMaterialSearch] = useState('');
   const [selectedMaterials, setSelectedMaterials] = useState<Array<{ id: string; quantity: number; unit: string }>>([]);
+  const [variants, setVariants] = useState<Array<{ name: string; attributes: Record<string, string>; price: number; costPrice?: number; sku?: string; stock: number }>>([]);
+  const [selectedAttributes, setSelectedAttributes] = useState<string[]>([]); // Selected attribute IDs for this product
 
   useEffect(() => {
     loadData();
@@ -39,16 +43,18 @@ export default function AdminProductsPage() {
 
   const loadData = async (searchTerm = '') => {
     const params = searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : '';
-    const [p, c, t, rm] = await Promise.all([
+    const [p, c, t, rm, va] = await Promise.all([
       fetch(`/api/products${params}`).then((r) => r.json()),
       fetch('/api/categories').then((r) => r.json()),
       fetch('/api/taxes').then((r) => r.json()),
       fetch('/api/raw-materials').then((r) => r.json()),
+      fetch('/api/variant-attributes').then((r) => r.json()),
     ]);
     setProducts(p);
     setCategories(c);
     setTaxes(t);
     setRawMaterials(rm);
+    setVariantAttributes(va);
   };
 
   const filteredMaterials = useMemo(() => {
@@ -73,23 +79,7 @@ export default function AdminProductsPage() {
     };
 
     if (productType === 'VARIANT') {
-      const variantLines = String(formData.get('variants') || '').trim().split('\n').filter(Boolean);
-      data.variants = variantLines.map((line) => {
-        const parts = line.split('|').map((p) => p.trim());
-        const [name, color, size, weight, price, costPrice, sku, stock] = parts;
-        const attrs: any = {};
-        if (color) attrs.color = color;
-        if (size) attrs.size = size;
-        if (weight) attrs.weight = weight;
-        return {
-          name: name || null,
-          sku: sku || null,
-          price: Number(price) || 0,
-          costPrice: costPrice ? Number(costPrice) : null,
-          stock: stock ? Number(stock) : 0,
-          attributes: Object.keys(attrs).length > 0 ? attrs : null,
-        };
-      }).filter((v) => !Number.isNaN(v.price));
+      data.variants = variants.filter((v) => !Number.isNaN(v.price) && v.price > 0);
     }
 
     if (productType === 'COMPOSITE') {
@@ -118,6 +108,8 @@ export default function AdminProductsPage() {
       setShowForm(false);
       setEditingProduct(null);
       setSelectedMaterials([]);
+      setVariants([]);
+      setSelectedAttributes([]);
       setProductType('SIMPLE');
     } catch (err: any) {
       alert(err.message || 'Failed to save product');
@@ -140,6 +132,33 @@ export default function AdminProductsPage() {
   const handleEdit = (product: Product) => {
     setEditingProduct(product);
     setProductType(product.type);
+    if (product.type === 'VARIANT' && product.variants) {
+      setVariants(
+        product.variants.map((v: any) => ({
+          name: v.name || '',
+          attributes: v.attributes || {},
+          price: Number(v.price),
+          costPrice: v.costPrice ? Number(v.costPrice) : undefined,
+          sku: v.sku || '',
+          stock: v.stock || 0,
+        }))
+      );
+      // Determine which attributes are used in this product's variants
+      const usedAttributeNames = new Set<string>();
+      product.variants.forEach((v: any) => {
+        if (v.attributes) {
+          Object.keys(v.attributes).forEach((key) => usedAttributeNames.add(key));
+        }
+      });
+      // Find attribute IDs that match the used names
+      const usedAttrIds = variantAttributes
+        .filter((attr) => usedAttributeNames.has(attr.name))
+        .map((attr) => attr.id);
+      setSelectedAttributes(usedAttrIds);
+    } else {
+      setVariants([]);
+      setSelectedAttributes([]);
+    }
     if (product.type === 'COMPOSITE' && product.materials) {
       setSelectedMaterials(
         product.materials.map((m: any) => ({
@@ -148,6 +167,8 @@ export default function AdminProductsPage() {
           unit: m.unit || m.rawMaterial.unit || 'unit',
         }))
       );
+    } else {
+      setSelectedMaterials([]);
     }
     setShowForm(true);
   };
@@ -178,7 +199,7 @@ export default function AdminProductsPage() {
           <h1 className="text-2xl font-semibold">Products</h1>
           <p className="mt-2 text-gray-600">Manage Simple, Variant, and Compound products.</p>
         </div>
-        <button onClick={() => { setShowForm(!showForm); setEditingProduct(null); setSelectedMaterials([]); setProductType('SIMPLE'); }} className="px-4 py-2 bg-blue-600 text-white rounded">
+        <button onClick={() => { setShowForm(!showForm); setEditingProduct(null); setSelectedMaterials([]); setVariants([]); setSelectedAttributes([]); setProductType('SIMPLE'); }} className="px-4 py-2 bg-blue-600 text-white rounded">
           {showForm ? 'Cancel' : 'Add Product'}
         </button>
       </div>
@@ -263,20 +284,276 @@ export default function AdminProductsPage() {
           </div>
 
           {productType === 'VARIANT' && (
-            <label className="space-y-1 block">
-              <span className="text-sm text-gray-700">Variants (one per line)</span>
-              <span className="text-xs text-gray-500 block mb-1">
-                Format: name|color|size|weight|price|costPrice|sku|stock
-              </span>
-              <textarea
-                name="variants"
-                className="w-full border rounded px-3 py-2"
-                rows={5}
-                placeholder="Red T-Shirt|Red|Small||25.00|15.00|TSH-RED-S|10&#10;Red T-Shirt|Red|Large||27.00|16.00|TSH-RED-L|10"
-                defaultValue={editingProduct?.variants?.map((v) => `${v.name || ''}|${v.attributes?.color || ''}|${v.attributes?.size || ''}|${v.attributes?.weight || ''}|${v.price}|${v.sku || ''}`).join('\n')}
-              />
-              <span className="text-xs text-gray-500">Price is required. Color, size, weight, cost, sku, stock are optional.</span>
-            </label>
+            <div className="space-y-3">
+              <div className="p-3 border rounded bg-gray-50">
+                <label className="block text-sm text-gray-700 font-medium mb-2">
+                  Select Attributes for This Product
+                </label>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  {variantAttributes.map((attr) => (
+                    <label key={attr.id} className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedAttributes.includes(attr.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedAttributes([...selectedAttributes, attr.id]);
+                          } else {
+                            setSelectedAttributes(selectedAttributes.filter((id) => id !== attr.id));
+                            // Remove this attribute from all variants
+                            setVariants(
+                              variants.map((v) => {
+                                const newAttrs = { ...v.attributes };
+                                delete newAttrs[attr.name];
+                                return { ...v, attributes: newAttrs };
+                              })
+                            );
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <span className="text-sm text-gray-700">{attr.name}</span>
+                    </label>
+                  ))}
+                </div>
+                {variantAttributes.length === 0 && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    No attributes defined. Create attributes in{' '}
+                    <a href="/admin/settings/variant-attributes" className="text-blue-600 underline">
+                      Variant Attributes
+                    </a>{' '}
+                    first.
+                  </p>
+                )}
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-700 font-medium">Variants</span>
+                <button
+                  type="button"
+                  onClick={() => setVariants([...variants, { name: '', attributes: {}, price: 0, stock: 0 }])}
+                  className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
+                  disabled={selectedAttributes.length === 0}
+                >
+                  + Add Variant
+                </button>
+              </div>
+              {variants.map((variant, idx) => (
+                <div key={idx} className="p-3 border rounded space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Variant Name</label>
+                      <select
+                        value={variant.name || ''}
+                        onChange={(e) => {
+                          const newVariants = [...variants];
+                          const selectedName = e.target.value;
+                          newVariants[idx].name = selectedName;
+                          
+                          // If the selected name is a combination (contains space), parse it and set attributes
+                          if (selectedName.includes(' ')) {
+                            const parts = selectedName.split(' ');
+                            const selectedAttrs = variantAttributes.filter((attr) => 
+                              selectedAttributes.includes(attr.id)
+                            );
+                            
+                            // Try to match parts to attribute values
+                            const newAttributes: Record<string, string> = {};
+                            parts.forEach((part) => {
+                              selectedAttrs.forEach((attr) => {
+                                if (Array.isArray(attr.values) && attr.values.includes(part)) {
+                                  newAttributes[attr.name] = part;
+                                }
+                              });
+                            });
+                            newVariants[idx].attributes = { ...newVariants[idx].attributes, ...newAttributes };
+                          } else {
+                            // Single value - find which attribute it belongs to
+                            const selectedAttrs = variantAttributes.filter((attr) => 
+                              selectedAttributes.includes(attr.id)
+                            );
+                            selectedAttrs.forEach((attr) => {
+                              if (Array.isArray(attr.values) && attr.values.includes(selectedName)) {
+                                newVariants[idx].attributes = { 
+                                  ...newVariants[idx].attributes, 
+                                  [attr.name]: selectedName 
+                                };
+                              }
+                            });
+                          }
+                          
+                          setVariants(newVariants);
+                        }}
+                        className="w-full border rounded px-2 py-1 text-sm"
+                        disabled={selectedAttributes.length === 0}
+                      >
+                        <option value="">
+                          {selectedAttributes.length === 0 
+                            ? 'Select attributes first' 
+                            : 'Select variant name...'}
+                        </option>
+                        {variantAttributes
+                          .filter((attr) => selectedAttributes.includes(attr.id))
+                          .map((attr) => (
+                            <optgroup key={attr.id} label={attr.name}>
+                              {Array.isArray(attr.values) &&
+                                attr.values.map((val) => (
+                                  <option key={val} value={val}>
+                                    {val}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          ))}
+                        {/* Generate all combinations if multiple attributes are selected */}
+                        {variantAttributes.filter((attr) => selectedAttributes.includes(attr.id)).length > 1 && (
+                          <optgroup label="Combinations">
+                            {(() => {
+                              const attrs = variantAttributes.filter((attr) => 
+                                selectedAttributes.includes(attr.id)
+                              );
+                              if (attrs.length === 0) return null;
+                              
+                              // Generate all combinations
+                              const combinations: string[] = [];
+                              const generateCombinations = (
+                                current: string[],
+                                remaining: typeof attrs
+                              ) => {
+                                if (remaining.length === 0) {
+                                  if (current.length > 0) {
+                                    combinations.push(current.join(' '));
+                                  }
+                                  return;
+                                }
+                                const [first, ...rest] = remaining;
+                                if (Array.isArray(first.values)) {
+                                  first.values.forEach((val) => {
+                                    generateCombinations([...current, val], rest);
+                                  });
+                                }
+                              };
+                              generateCombinations([], attrs);
+                              
+                              return combinations.map((combo) => (
+                                <option key={combo} value={combo}>
+                                  {combo}
+                                </option>
+                              ));
+                            })()}
+                          </optgroup>
+                        )}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Price *</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={variant.price}
+                        onChange={(e) => {
+                          const newVariants = [...variants];
+                          newVariants[idx].price = Number(e.target.value) || 0;
+                          setVariants(newVariants);
+                        }}
+                        className="w-full border rounded px-2 py-1 text-sm"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {variantAttributes
+                      .filter((attr) => selectedAttributes.includes(attr.id))
+                      .map((attr) => (
+                        <div key={attr.id}>
+                          <label className="block text-xs text-gray-700 mb-1">{attr.name}</label>
+                          <select
+                            value={variant.attributes[attr.name] || ''}
+                            onChange={(e) => {
+                              const newVariants = [...variants];
+                              if (!newVariants[idx].attributes) newVariants[idx].attributes = {};
+                              newVariants[idx].attributes[attr.name] = e.target.value;
+                              setVariants(newVariants);
+                            }}
+                            className="w-full border rounded px-2 py-1 text-sm"
+                          >
+                            <option value="">Select {attr.name}...</option>
+                            {Array.isArray(attr.values) &&
+                              attr.values.map((val) => (
+                                <option key={val} value={val}>
+                                  {val}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      ))}
+                  </div>
+                  {selectedAttributes.length === 0 && (
+                    <p className="text-xs text-gray-500">
+                      Select attributes above to use them in variants.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">
+                        Cost Price {variant.costPrice === undefined && '(will use product default)'}
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={variant.costPrice !== undefined ? variant.costPrice : ''}
+                        onChange={(e) => {
+                          const newVariants = [...variants];
+                          newVariants[idx].costPrice = e.target.value ? Number(e.target.value) : undefined;
+                          setVariants(newVariants);
+                        }}
+                        placeholder="Leave empty = use product default"
+                        className="w-full border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">SKU</label>
+                      <input
+                        type="text"
+                        value={variant.sku || ''}
+                        onChange={(e) => {
+                          const newVariants = [...variants];
+                          newVariants[idx].sku = e.target.value;
+                          setVariants(newVariants);
+                        }}
+                        className="w-full border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-700 mb-1">Stock</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={variant.stock}
+                        onChange={(e) => {
+                          const newVariants = [...variants];
+                          newVariants[idx].stock = Number(e.target.value) || 0;
+                          setVariants(newVariants);
+                        }}
+                        className="w-full border rounded px-2 py-1 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setVariants(variants.filter((_, i) => i !== idx))}
+                    className="w-full px-2 py-1 border rounded text-sm text-red-600 hover:bg-red-50"
+                  >
+                    Remove Variant
+                  </button>
+                </div>
+              ))}
+              {variants.length === 0 && (
+                <p className="text-sm text-gray-500 text-center py-2">
+                  No variants added. Click "+ Add Variant" to create variants.
+                </p>
+              )}
+            </div>
           )}
 
           {productType === 'COMPOSITE' && (
@@ -360,8 +637,8 @@ export default function AdminProductsPage() {
                     <span className="ml-2 text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">{p.type}</span>
                   </div>
                   <div className="text-sm text-gray-600 mt-1">
-                    ${Number(p.price).toFixed(2)}
-                    {p.costPrice && <span className="ml-2">Cost: ${Number(p.costPrice).toFixed(2)}</span>}
+                    Rs. {Number(p.price).toFixed(2)}
+                    {p.costPrice && <span className="ml-2">Cost: Rs. {Number(p.costPrice).toFixed(2)}</span>}
                     {p.type === 'SIMPLE' && <span className="ml-2">Stock: {p.stock}</span>}
                     {' • '}
                     {p.category?.name ?? 'General'}
@@ -372,7 +649,7 @@ export default function AdminProductsPage() {
                       <strong>Variants:</strong>{' '}
                       {p.variants.map((v, i) => (
                         <span key={v.id || i}>
-                          {v.name || 'Variant'} ({Object.entries(v.attributes || {}).map(([k, v]) => `${k}: ${v}`).join(', ')}) @ ${Number(v.price).toFixed(2)}
+                          {v.name || 'Variant'} ({Object.entries(v.attributes || {}).map(([k, v]) => `${k}: ${v}`).join(', ')}) @ Rs. {Number(v.price).toFixed(2)}
                           {i < p.variants!.length - 1 ? ', ' : ''}
                         </span>
                       ))}

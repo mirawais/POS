@@ -5,9 +5,11 @@ import { NextResponse } from 'next/server';
 export async function GET() {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const clientId = (session as any).user.clientId as string;
+  const user = (session as any).user;
+  const clientId = user.clientId as string;
+  const cashierId = user.id as string;
   const bills = await prisma.heldBill.findMany({
-    where: { clientId },
+    where: { clientId, cashierId },
     orderBy: { createdAt: 'desc' },
   });
   return NextResponse.json(bills);
@@ -18,13 +20,31 @@ export async function POST(req: Request) {
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const user = (session as any).user;
   const clientId = user.clientId as string;
+  const cashierId = user.id as string;
   const body = await req.json();
-  const data = body?.data;
+  const { data, id } = body; // id is optional - if provided, update existing; otherwise create new
   if (!data) return NextResponse.json({ error: 'No cart data' }, { status: 400 });
+
+  // If id is provided, update existing held bill
+  if (id) {
+    const existing = await prisma.heldBill.findFirst({
+      where: { id, clientId, cashierId },
+    });
+    if (!existing) {
+      return NextResponse.json({ error: 'Held bill not found' }, { status: 404 });
+    }
+    const updated = await prisma.heldBill.update({
+      where: { id },
+      data: { data },
+    });
+    return NextResponse.json(updated);
+  }
+
+  // Otherwise, create new held bill
   const bill = await prisma.heldBill.create({
     data: {
       clientId,
-      cashierId: user.id,
+      cashierId,
       data,
     },
   });

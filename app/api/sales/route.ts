@@ -11,6 +11,62 @@ type LineInput = {
   discountValue?: number | null;
 };
 
+// Generate unique order ID: YYYYMMDD-XXXXX (removed ORD- prefix)
+function generateOrderId(): string {
+  const date = new Date();
+  const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
+  const random = Math.random().toString(36).substring(2, 7).toUpperCase();
+  return `${dateStr}-${random}`;
+}
+
+export async function GET(req: Request) {
+  try {
+    const session = await auth();
+    const user = (session as any)?.user;
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const clientId = user.clientId as string;
+
+    const { searchParams } = new URL(req.url);
+    const startDate = searchParams.get('startDate');
+    const endDate = searchParams.get('endDate');
+    const cashierId = searchParams.get('cashierId');
+    const orderId = searchParams.get('orderId');
+
+    const where: any = { clientId };
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+    if (cashierId) where.cashierId = cashierId;
+    if (orderId) where.orderId = { contains: orderId, mode: 'insensitive' };
+
+    const sales = await (prisma as any).sale.findMany({
+      where,
+      include: {
+        cashier: { select: { id: true, name: true, email: true } },
+        items: {
+          include: {
+            product: { select: { id: true, name: true, sku: true } },
+            variant: { select: { id: true, name: true, sku: true, attributes: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 1000, // Limit to prevent huge responses
+    });
+
+    return NextResponse.json(sales);
+  } catch (e: any) {
+    console.error('sales GET error', e);
+    return NextResponse.json({ error: e?.message ?? 'Failed to fetch sales' }, { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const session = await auth();
@@ -19,7 +75,7 @@ export async function POST(req: Request) {
     const clientId = user.clientId as string;
 
     const body = await req.json();
-    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId } = body ?? {};
+    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId } = body ?? {};
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'No items' }, { status: 400 });
 
     const productIds = items.map((i: LineInput) => i.productId);
@@ -86,11 +142,14 @@ export async function POST(req: Request) {
       tax,
     });
 
+    const orderId = generateOrderId();
+
     const sale = await (prisma as any).$transaction(async (tx: any) => {
       const saleRecord = await tx.sale.create({
         data: {
           clientId,
           cashierId: user.id,
+          orderId,
           subtotal: totals.subtotal as any,
           discount: (totals.itemDiscountTotal + totals.cartDiscountTotal + totals.couponValue) as any,
           couponCode: coupon ? coupon.code : null,
@@ -147,6 +206,13 @@ export async function POST(req: Request) {
             });
           }
         }
+      }
+
+      // Delete held bill if it was checked out
+      if (heldBillId) {
+        await tx.heldBill.delete({ where: { id: heldBillId } }).catch(() => {
+          // Ignore if already deleted or not found
+        });
       }
 
       return saleRecord;

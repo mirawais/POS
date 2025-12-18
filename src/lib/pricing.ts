@@ -19,7 +19,9 @@ type TotalsResult = {
   total: number;
   perItem: Array<{
     productId: string;
+    productName: string;
     variantId?: string | null;
+    variantName?: string | null;
     quantity: number;
     price: number;
     discount: number;
@@ -53,9 +55,26 @@ export function calculateTotals(opts: {
     subtotal += lineBase;
     itemDiscountTotal += lineDiscount;
     const taxPercent = line.taxPercent ?? 0;
+    // Get variant name if variantId is provided
+    let variantName: string | null = null;
+    if (line.variantId && line.product.variants && Array.isArray(line.product.variants)) {
+      const variant = (line.product.variants as any[]).find((v: any) => v.id === line.variantId);
+      if (variant) {
+        variantName = variant.name || null;
+        // If variant name is not set, try to generate from attributes
+        if (!variantName && variant.attributes) {
+          const attrValues = Object.values(variant.attributes).filter(Boolean);
+          if (attrValues.length > 0) {
+            variantName = attrValues.join(' ');
+          }
+        }
+      }
+    }
     perItem.push({
       productId: line.product.id,
+      productName: line.product.name,
       variantId: line.variantId ?? null,
+      variantName: variantName,
       quantity: line.quantity,
       price: unitPrice,
       discount: lineDiscount,

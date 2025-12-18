@@ -10,8 +10,12 @@ const links = [
   { href: '/admin/products', label: 'Products' },
   { href: '/admin/categories', label: 'Categories' },
   { href: '/admin/raw-materials', label: 'Raw Materials' },
+  { href: '/admin/coupons', label: 'Coupons' },
+  { href: '/admin/users', label: 'Users' },
   { href: '/admin/settings/tax', label: 'Taxes' },
   { href: '/admin/settings/invoice', label: 'Receipt' },
+  { href: '/admin/settings/variant-attributes', label: 'Variant Attributes' },
+  { href: '/admin/settings/fbr', label: 'FBR Integration' },
   { href: '/admin/reports', label: 'Reports' },
 ];
 
