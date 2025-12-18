@@ -9,6 +9,7 @@ type ProductVariant = {
   name?: string | null;
   sku?: string | null;
   price: number;
+  stock?: number;
   attributes?: { color?: string; size?: string; weight?: string; [key: string]: any } | null;
 };
 
@@ -17,6 +18,8 @@ type Product = {
   name: string;
   sku: string;
   price: number;
+  type?: 'SIMPLE' | 'VARIANT' | 'COMPOSITE';
+  stock?: number;
   variants?: ProductVariant[];
 };
 
@@ -206,10 +209,10 @@ export default function BillingPage() {
   const addToCart = (product: Product, variant?: ProductVariant) => {
     // Check stock before adding
     let availableStock = 0;
-    if (product.type === 'SIMPLE') {
+    if (product.type === 'SIMPLE' || !product.type) {
       availableStock = product.stock || 0;
     } else if (product.type === 'VARIANT' && variant) {
-      availableStock = variant.stock || 0;
+      availableStock = (variant as any).stock || 0;
     } else if (product.type === 'COMPOSITE') {
       // For composite products, check raw material availability
       // This is a simplified check - in production, you'd check all materials
@@ -250,7 +253,7 @@ export default function BillingPage() {
       if (item.product.type === 'SIMPLE') {
         availableStock = item.product.stock || 0;
       } else if (item.product.type === 'VARIANT' && item.variant) {
-        availableStock = item.variant.stock || 0;
+        availableStock = item.variant?.stock || 0;
       } else if (item.product.type === 'COMPOSITE') {
         availableStock = item.product.stock || 0;
       }

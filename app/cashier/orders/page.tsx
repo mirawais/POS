@@ -26,6 +26,7 @@ type Sale = {
   total: number;
   couponCode?: string | null;
   couponValue?: number | null;
+  fbrInvoiceId?: string | null;
 };
 
 export default function CashierOrdersPage() {

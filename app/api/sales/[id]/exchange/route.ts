@@ -85,18 +85,18 @@ export async function POST(
 
         const product = saleItem.product;
         // Restore stock
-        if (product.type === 'SIMPLE') {
+        if ((product as any).type === 'SIMPLE') {
           await tx.product.update({
-            where: { id: product.id },
+            where: { id: (product as any).id },
             data: { stock: { increment: returnQty } },
           });
-        } else if (product.type === 'VARIANT' && saleItem.variantId) {
+        } else if ((product as any).type === 'VARIANT' && saleItem.variantId) {
           await tx.productVariant.update({
             where: { id: saleItem.variantId },
             data: { stock: { increment: returnQty } },
           });
-        } else if (product.type === 'COMPOSITE' && product.materials) {
-          for (const material of product.materials) {
+        } else if ((product as any).type === 'COMPOSITE' && (product as any).materials) {
+          for (const material of (product as any).materials) {
             const quantityToRestore = Number(material.quantity) * returnQty;
             await tx.rawMaterial.update({
               where: { id: material.rawMaterialId },
@@ -125,8 +125,8 @@ export async function POST(
           if (!product) continue;
 
           let overridePrice: number | null = null;
-          if (repl.variantId) {
-            const variant = product.variants.find((v: any) => v.id === repl.variantId);
+          if (repl.variantId && (product as any).variants) {
+            const variant = (product as any).variants.find((v: any) => v.id === repl.variantId);
             if (variant) overridePrice = Number(variant.price);
           }
 
@@ -232,18 +232,18 @@ export async function POST(
           });
 
           // Deduct stock for replacements
-          if (product.type === 'SIMPLE') {
+          if ((product as any).type === 'SIMPLE') {
             await tx.product.update({
-              where: { id: product.id },
+              where: { id: (product as any).id },
               data: { stock: { decrement: line.quantity } },
             });
-          } else if (product.type === 'VARIANT' && line.variantId) {
+          } else if ((product as any).type === 'VARIANT' && line.variantId) {
             await tx.productVariant.update({
               where: { id: line.variantId },
               data: { stock: { decrement: line.quantity } },
             });
-          } else if (product.type === 'COMPOSITE' && product.materials) {
-            for (const material of product.materials) {
+          } else if ((product as any).type === 'COMPOSITE' && (product as any).materials) {
+            for (const material of (product as any).materials) {
               const quantityToDeduct = Number(material.quantity) * line.quantity;
               await tx.rawMaterial.update({
                 where: { id: material.rawMaterialId },

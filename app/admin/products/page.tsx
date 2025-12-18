@@ -10,8 +10,8 @@ type Product = {
   costPrice?: number | null;
   stock: number;
   type: 'SIMPLE' | 'VARIANT' | 'COMPOSITE';
-  category?: { name: string } | null;
-  defaultTax?: { name: string; percent: number } | null;
+  category?: { id: string; name: string } | null;
+  defaultTax?: { id: string; name: string; percent: number } | null;
   variants?: Array<{ id: string; name?: string | null; sku?: string | null; price: number; attributes?: any }>;
   materials?: Array<{ rawMaterial: { name: string; sku: string; unit?: string | null }; quantity: number; unit?: string | null }>;
 };
@@ -190,7 +190,7 @@ export default function AdminProductsPage() {
     );
   };
 
-  const defaultCategory = categories.find((c) => c.name === 'General' || (c as any).isDefault);
+  const defaultCategory: Category | undefined = categories.find((c) => c.name === 'General' || (c as any).isDefault);
 
   return (
     <div className="space-y-6">

@@ -21,6 +21,7 @@ type Sale = {
   subtotal: number;
   discount: number;
   tax: number;
+  taxPercent?: number | null;
   total: number;
 };
 

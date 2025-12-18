@@ -57,8 +57,8 @@ export function calculateTotals(opts: {
     const taxPercent = line.taxPercent ?? 0;
     // Get variant name if variantId is provided
     let variantName: string | null = null;
-    if (line.variantId && line.product.variants && Array.isArray(line.product.variants)) {
-      const variant = (line.product.variants as any[]).find((v: any) => v.id === line.variantId);
+    if (line.variantId && (line.product as any).variants && Array.isArray((line.product as any).variants)) {
+      const variant = ((line.product as any).variants as any[]).find((v: any) => v.id === line.variantId);
       if (variant) {
         variantName = variant.name || null;
         // If variant name is not set, try to generate from attributes

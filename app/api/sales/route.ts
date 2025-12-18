@@ -101,7 +101,7 @@ export async function POST(req: Request) {
       const variantId = line.variantId;
       let overridePrice: number | null = null;
       if (variantId) {
-        const variant = product.variants.find((v) => v.id === variantId);
+        const variant = (product as any).variants.find((v: any) => v.id === variantId);
         if (!variant) throw new Error(`Variant not found for product: ${line.productId}`);
         overridePrice = Number(variant.price);
       }

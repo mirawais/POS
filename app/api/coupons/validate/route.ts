@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET(req: Request) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const clientId = (session as any).user.clientId as string;
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');

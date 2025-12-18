@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET(req: Request) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const clientId = (session as any).user.clientId as string;
   const { searchParams } = new URL(req.url);
   const search = searchParams.get('search') || '';
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const clientId = (session as any).user.clientId as string;
   const data = await req.json();
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const clientId = (session as any).user.clientId as string;
   const data = await req.json();
@@ -211,7 +211,7 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   const session = await auth();
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
