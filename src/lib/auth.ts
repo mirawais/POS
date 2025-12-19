@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 
 export const authConfig: NextAuthOptions = {
+  // Use environment variable for base URL, but don't hardcode localhost
+  ...(process.env.NEXTAUTH_URL && { baseUrl: process.env.NEXTAUTH_URL }),
   session: { strategy: 'jwt' },
   providers: [
     Credentials({

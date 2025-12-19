@@ -41,7 +41,13 @@ export function AdminNav() {
         </nav>
       </div>
       <button
-        onClick={() => signOut({ callbackUrl: '/login' })}
+        onClick={() => {
+          // Use current origin to ensure correct redirect in both local and production
+          const callbackUrl = typeof window !== 'undefined' 
+            ? `${window.location.origin}/login`
+            : '/login';
+          signOut({ callbackUrl });
+        }}
         className="text-sm px-3 py-1.5 border rounded hover:bg-gray-50"
       >
         Logout
