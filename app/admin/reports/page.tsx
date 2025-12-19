@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 export default function ReportsPage() {
   const [sales, setSales] = useState<any[]>([]);
@@ -213,7 +214,9 @@ export default function ReportsPage() {
   const defaultStartDateStr = defaultStartDate.toISOString().split('T')[0];
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="Reports" />
+      <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Sales Reports</h1>
         <p className="mt-2 text-gray-600">View and export sales history with filters.</p>
@@ -438,6 +441,7 @@ export default function ReportsPage() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

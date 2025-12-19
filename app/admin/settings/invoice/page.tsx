@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type CustomField = {
   label: string;
@@ -94,17 +95,14 @@ export default function AdminInvoiceSettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Invoice Settings</h1>
-        <p className="mt-2 text-gray-600">Customize logo, header, footer, visibility flags, and custom fields for printing.</p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-6">
-        <div>
-          <h2 className="font-semibold mb-3">Layout</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="space-y-1">
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="Invoice Settings" />
+      <div className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-6">
+          <div>
+            <h2 className="font-semibold mb-3">Layout</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="space-y-1">
               <span className="text-sm text-gray-700">Logo URL</span>
               <input
                 type="text"
@@ -133,9 +131,9 @@ export default function AdminInvoiceSettingsPage() {
                 rows={3}
                 placeholder="Thank you for your business!"
               />
-            </label>
+              </label>
+            </div>
           </div>
-        </div>
 
         <div>
           <h2 className="font-semibold mb-3">Visibility Options</h2>
@@ -252,13 +250,14 @@ export default function AdminInvoiceSettingsPage() {
         </div>
 
         <button
-          type="submit"
-          disabled={loading}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-        >
-          {loading ? 'Saving...' : 'Save Settings'}
-        </button>
-      </form>
+            type="submit"
+            disabled={loading}
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loading ? 'Saving...' : 'Save Settings'}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

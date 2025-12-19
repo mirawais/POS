@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type FBRSetting = {
   id: string;
@@ -76,11 +77,9 @@ export default function AdminFBRSettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">FBR Integration</h1>
-        <p className="mt-2 text-gray-600">Configure FBR API settings for invoice generation.</p>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="FBR Integration" />
+      <div className="p-6 space-y-6">
 
       {message && (
         <div className={`p-3 rounded ${message.includes('success') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -194,6 +193,7 @@ export default function AdminFBRSettingsPage() {
           </div>
         </form>
       )}
+      </div>
     </div>
   );
 }

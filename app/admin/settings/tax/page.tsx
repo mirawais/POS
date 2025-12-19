@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type Tax = {
   id: string;
@@ -137,19 +138,16 @@ export default function AdminTaxSettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Tax Settings</h1>
-        <p className="mt-2 text-gray-600">Manage tax slabs and global tax pricing mode.</p>
-      </div>
-
-      {/* Tax Mode Selection */}
-      <div className="p-4 border rounded bg-white">
-        <h2 className="font-semibold mb-3">Global Tax Pricing Mode</h2>
-        <p className="text-sm text-gray-600 mb-3">
-          This setting applies globally to all products, carts, invoices, and reports.
-        </p>
-        <div className="space-y-2">
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="Tax Settings" />
+      <div className="p-6 space-y-6">
+        {/* Tax Mode Selection */}
+        <div className="p-4 border rounded bg-white">
+          <h2 className="font-semibold mb-3">Global Tax Pricing Mode</h2>
+          <p className="text-sm text-gray-600 mb-3">
+            This setting applies globally to all products, carts, invoices, and reports.
+          </p>
+          <div className="space-y-2">
           <label className="flex items-center gap-2 p-3 border rounded cursor-pointer hover:bg-gray-50">
             <input
               type="radio"
@@ -180,11 +178,11 @@ export default function AdminTaxSettingsPage() {
               <p className="text-xs text-gray-600">Product price includes tax. Tax is deducted using reverse calculation.</p>
             </div>
           </label>
+          </div>
         </div>
-      </div>
 
-      {/* Add Tax Form */}
-      <form onSubmit={handleCreateTax} className="p-4 border rounded space-y-3 bg-white">
+        {/* Add Tax Form */}
+        <form onSubmit={handleCreateTax} className="p-4 border rounded space-y-3 bg-white">
         <h2 className="font-semibold">Add Tax Slab</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <label className="space-y-1">
@@ -226,10 +224,10 @@ export default function AdminTaxSettingsPage() {
         <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
           {loading ? 'Saving...' : 'Save Tax'}
         </button>
-      </form>
+        </form>
 
-      {/* Existing Taxes */}
-      <div className="p-4 border rounded bg-white">
+        {/* Existing Taxes */}
+        <div className="p-4 border rounded bg-white">
         <h2 className="font-semibold mb-3">Existing Tax Slabs</h2>
         <div className="space-y-2">
           {taxes.length === 0 ? (
@@ -264,6 +262,7 @@ export default function AdminTaxSettingsPage() {
             ))
           )}
         </div>
+      </div>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type Product = {
   id: string;
@@ -285,7 +286,9 @@ export default function AdminProductsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="Products" />
+      <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Products</h1>
@@ -839,6 +842,7 @@ export default function AdminProductsPage() {
           ))}
           {products.length === 0 && <p className="text-sm text-gray-600">No products found.</p>}
         </div>
+      </div>
       </div>
     </div>
   );

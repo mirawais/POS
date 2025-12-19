@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type VariantAttribute = {
   id: string;
@@ -91,7 +92,9 @@ export default function VariantAttributesPage() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="Variant Attributes" />
+      <div className="p-6 space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">Variant Attributes</h1>
         <p className="mt-2 text-gray-600">
@@ -207,6 +210,7 @@ export default function VariantAttributesPage() {
             <p className="text-gray-600 text-center py-4">No attributes found.</p>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

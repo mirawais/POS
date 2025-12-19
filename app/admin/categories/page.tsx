@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type Category = {
   id: string;
@@ -72,11 +73,9 @@ export default function AdminCategoriesPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Categories</h1>
-        <p className="mt-2 text-gray-600">Manage product categories (General by default).</p>
-      </div>
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="Categories" />
+      <div className="p-6 space-y-6">
 
       <div className="flex items-center gap-2">
         <input
@@ -157,6 +156,7 @@ export default function AdminCategoriesPage() {
           ))}
           {categories.length === 0 && <p className="text-sm text-gray-600">No categories found.</p>}
         </div>
+      </div>
       </div>
     </div>
   );

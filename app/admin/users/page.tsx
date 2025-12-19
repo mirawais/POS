@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type User = {
   id: string;
@@ -127,12 +128,10 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">User Management</h1>
-          <p className="mt-2 text-gray-600">Add, edit, and manage users and their roles.</p>
-        </div>
+    <div className="min-h-screen bg-gray-50">
+      <AdminHeader title="User Management" />
+      <div className="p-6 space-y-6">
+        <div className="flex items-center justify-between">
         <button
           onClick={() => {
             resetForm();
@@ -262,6 +261,7 @@ export default function AdminUsersPage() {
           </table>
         </div>
       )}
+      </div>
     </div>
   );
 }

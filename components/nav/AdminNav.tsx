@@ -41,12 +41,11 @@ export function AdminNav() {
         </nav>
       </div>
       <button
-        onClick={() => {
-          // Use current origin to ensure correct redirect in both local and production
-          const callbackUrl = typeof window !== 'undefined' 
-            ? `${window.location.origin}/login`
-            : '/login';
-          signOut({ callbackUrl });
+        onClick={async () => {
+          // Sign out without redirect, then manually redirect to ensure correct URL
+          await signOut({ redirect: false });
+          // Use window.location.href to ensure correct redirect in both local and production
+          window.location.href = '/login';
         }}
         className="text-sm px-3 py-1.5 border rounded hover:bg-gray-50"
       >
