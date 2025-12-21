@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/notifications/ToastContainer';
+import { Printer } from 'lucide-react';
 
 type HeldBill = {
   id: string;
@@ -75,6 +76,186 @@ export default function HeldBillsPage() {
     return cart.reduce((sum: number, item: any) => sum + (item.quantity || 1), 0);
   };
 
+  const printHeldBill = async (bill: HeldBill) => {
+    try {
+      // Fetch invoice settings
+      const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
+      
+      // Fetch taxes for calculation
+      const taxes = await fetch('/api/taxes').then((r) => r.json()).catch(() => ([]));
+      
+      // Calculate totals from cart data (products should be included in the cart items)
+      const cart = bill.data?.cart || [];
+      let subtotal = 0;
+      const itemsHtml = cart.map((item: any) => {
+        // Use product data from the cart item (should be included when saving)
+        const product = item.product;
+        const variant = item.variant;
+        const price = variant?.price ?? product?.price ?? item.price ?? 0;
+        const quantity = item.quantity || 1;
+        const itemTotal = Number(price) * quantity;
+        subtotal += itemTotal;
+        
+        const productName = product?.name || 'Unknown';
+        const variantName = variant?.name || null;
+        
+        return `<tr>
+          <td>${productName}${variantName ? ` (${variantName})` : ''}</td>
+          <td>${quantity}</td>
+          <td>Rs. ${Number(price).toFixed(2)}</td>
+          <td>Rs. ${itemTotal.toFixed(2)}</td>
+        </tr>`;
+      }).join('');
+
+      // Calculate discounts
+      let discountTotal = 0;
+      if (bill.data?.cartDiscountValue && bill.data.cartDiscountValue > 0) {
+        if (bill.data.cartDiscountType === 'PERCENT') {
+          discountTotal = (subtotal * bill.data.cartDiscountValue) / 100;
+        } else {
+          discountTotal = bill.data.cartDiscountValue;
+        }
+      }
+
+      // Calculate coupon discount if applicable
+      let couponValue = 0;
+      if (bill.data?.couponCode) {
+        const validatedCoupon = await getValidatedCoupon(bill.data.couponCode);
+        if (validatedCoupon) {
+          const couponDiscountBase = Math.max(0, subtotal - discountTotal);
+          if (validatedCoupon.type === 'PERCENT') {
+            couponValue = (couponDiscountBase * validatedCoupon.value) / 100;
+          } else {
+            couponValue = validatedCoupon.value;
+          }
+        }
+      }
+
+      const totalDiscount = discountTotal + couponValue;
+      const afterDiscount = Math.max(0, subtotal - totalDiscount);
+
+      // Calculate tax
+      let taxAmount = 0;
+      const taxMode = setting?.taxMode || 'EXCLUSIVE';
+      if (bill.data?.taxId && bill.data.taxId !== 'none') {
+        const selectedTax = taxes.find((t: any) => t.id === bill.data.taxId);
+        if (selectedTax) {
+          const taxPercent = Number(selectedTax.percent);
+          if (taxMode === 'INCLUSIVE') {
+            taxAmount = (afterDiscount * taxPercent) / (100 + taxPercent);
+          } else {
+            taxAmount = (afterDiscount * taxPercent) / 100;
+          }
+        }
+      }
+
+      const total = taxMode === 'INCLUSIVE' ? afterDiscount : afterDiscount + taxAmount;
+
+      // Get logo, header, footer from settings
+      const logo = setting?.logoUrl ? `<img src="${setting.logoUrl}" style="max-width:150px;" />` : '';
+      const header = setting?.headerText ? `<div>${setting.headerText}</div>` : '';
+      const footer = setting?.footerText ? `<div>${setting.footerText}</div>` : '';
+
+      // Build HTML
+      const savedDate = new Date(bill.createdAt);
+      const html = `
+        <html>
+          <head>
+            <title>Held Bill - ${bill.data?.label || 'Unnamed Cart'}</title>
+            <style>
+              body { font-family: Arial, sans-serif; padding: 20px; font-size: 12px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+              th, td { padding: 4px; text-align: left; border-bottom: 1px solid #ddd; }
+              th { background-color: #f5f5f5; }
+              .total { font-weight: bold; }
+            </style>
+          </head>
+          <body>
+            <div style="text-align:center;">
+              ${logo}
+              ${header}
+            </div>
+            <div style="margin-top:8px;font-size:12px;">
+              <strong>Held Bill / Saved Cart</strong><br/>
+              Cart Name: ${bill.data?.label || 'Unnamed Cart'}<br/>
+              Saved Date: ${savedDate.toLocaleString()}<br/>
+              ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
+                ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+                : ''}
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>Qty</th>
+                  <th>Price</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            <div style="margin-top:8px;font-size:12px;">
+              Subtotal: Rs. ${subtotal.toFixed(2)}<br/>
+              ${setting?.showDiscount !== false && totalDiscount > 0 ? `Discount: Rs. ${totalDiscount.toFixed(2)}<br/>` : ''}
+              ${bill.data?.couponCode ? `Coupon: ${bill.data.couponCode}<br/>` : ''}
+              ${setting?.showTax !== false && taxAmount > 0 ? `Tax: Rs. ${taxAmount.toFixed(2)}<br/>` : ''}
+              <strong class="total">Total: Rs. ${total.toFixed(2)}</strong>
+            </div>
+            <div style="text-align:center;margin-top:12px;font-size:12px;">
+              <em>This is a saved cart and has not been processed as a sale.</em><br/>
+              ${footer}
+            </div>
+          </body>
+        </html>
+      `;
+
+      // Open print window
+      const win = window.open('', `PRINT_HELD_BILL_${bill.id}_${Date.now()}`, 'height=650,width=400');
+      if (!win) {
+        showError('Please allow pop-ups to print');
+        return;
+      }
+      
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      win.print();
+      
+      // Close window after print
+      setTimeout(() => {
+        try {
+          win.close();
+        } catch (e) {
+          // Ignore if window already closed
+        }
+      }, 1000);
+    } catch (err: any) {
+      showError(err.message || 'Failed to print held bill');
+    }
+  };
+
+  // Cache for validated coupons
+  const [validatedCoupons, setValidatedCoupons] = useState<Map<string, any>>(new Map());
+  
+  const getValidatedCoupon = async (couponCode: string) => {
+    if (validatedCoupons.has(couponCode)) {
+      return validatedCoupons.get(couponCode);
+    }
+    try {
+      const res = await fetch(`/api/coupons/validate?code=${encodeURIComponent(couponCode)}`);
+      if (res.ok) {
+        const coupon = await res.json();
+        setValidatedCoupons(new Map(validatedCoupons.set(couponCode, coupon)));
+        return coupon;
+      }
+    } catch (e) {
+      // Ignore
+    }
+    return null;
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -144,6 +325,13 @@ export default function HeldBillsPage() {
                     className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm"
                   >
                     Load to Billing
+                  </button>
+                  <button
+                    onClick={() => printHeldBill(bill)}
+                    className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm flex items-center gap-1"
+                    title="Print"
+                  >
+                    <Printer className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleDelete(bill.id, cartLabel)}
