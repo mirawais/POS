@@ -1,5 +1,5 @@
 "use client";
-import { signIn } from 'next-auth/react';
+import { signIn, getSession } from 'next-auth/react';
 import { useState } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
 
@@ -8,6 +8,47 @@ export default function LoginPage() {
   const [password, setPassword] = useState('admin123');
   const [loading, setLoading] = useState(false);
   const { showError } = useToast();
+
+  // Helper function to get role and redirect
+  const redirectBasedOnRole = async (retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const session = await getSession();
+        if (session && (session as any)?.user?.role) {
+          const userRole = (session as any).user.role;
+          
+          // Check for callbackUrl from URL params
+          const urlParams = new URLSearchParams(window.location.search);
+          const callbackUrl = urlParams.get('callbackUrl');
+          if (callbackUrl && callbackUrl !== '/login') {
+            window.location.href = callbackUrl;
+            return;
+          }
+          
+          // Redirect based on role
+          if (userRole === 'ADMIN') {
+            window.location.href = '/admin/dashboard';
+          } else if (userRole === 'CASHIER') {
+            window.location.href = '/cashier/billing';
+          } else {
+            // Fallback
+            window.location.href = '/admin/dashboard';
+          }
+          return;
+        }
+      } catch (sessionError) {
+        console.error('Session fetch error:', sessionError);
+      }
+      
+      // Wait before retry
+      if (i < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200 * (i + 1)));
+      }
+    }
+    
+    // If all retries fail, redirect to admin (middleware will handle if needed)
+    window.location.href = '/admin/dashboard';
+  };
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,8 +63,10 @@ export default function LoginPage() {
       if ((res as any)?.error) {
         showError('Invalid email or password. Please try again.');
       } else if (res?.ok) {
-        // Redirect based on role - handled by middleware
-        window.location.href = '/admin/dashboard';
+        // Wait a moment for session to be ready, then redirect based on role
+        setTimeout(() => {
+          redirectBasedOnRole();
+        }, 150);
       }
     } catch (err: any) {
       showError(err.message || 'An error occurred during login. Please try again.');
