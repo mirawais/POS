@@ -61,6 +61,7 @@ export async function GET(req: Request) {
     const sales = await (prisma as any).sale.findMany({
       where,
       include: {
+        client: { select: { name: true } },
         cashier: { select: { id: true, name: true, email: true } },
         refunds: { select: { id: true, refundId: true, total: true } },
         items: {

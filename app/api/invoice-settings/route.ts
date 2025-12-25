@@ -4,10 +4,21 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
-  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const clientId = (session as any).user.clientId as string;
+  const user = (session as any)?.user;
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  let clientId = user.clientId as string;
+  const { searchParams } = new URL(req.url);
+
+  if (user.role === 'SUPER_ADMIN') {
+    const targetClient = searchParams.get('clientId');
+    if (targetClient) clientId = targetClient;
+  }
+
+  if (!clientId) return NextResponse.json({});
+
   const setting = await prisma.invoiceSetting.findUnique({
     where: { clientId },
   });
@@ -31,7 +42,7 @@ export async function POST(req: Request) {
     customFields,
     taxMode,
   } = body;
-  
+
   // Validate and sort custom fields
   let processedCustomFields = null;
   if (customFields && Array.isArray(customFields) && customFields.length > 0) {
@@ -44,12 +55,12 @@ export async function POST(req: Request) {
         sortOrder: Number(f.sortOrder) || 0,
       }))
       .sort((a: any, b: any) => a.sortOrder - b.sortOrder);
-    
+
     if (processedCustomFields.length === 0) {
       processedCustomFields = null;
     }
   }
-  
+
   const setting = await prisma.invoiceSetting.upsert({
     where: { clientId },
     update: {
