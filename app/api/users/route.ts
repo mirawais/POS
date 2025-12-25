@@ -5,19 +5,37 @@ import bcrypt from 'bcryptjs';
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const clientId = (session as any).user.clientId as string;
-  
+
+  const user = (session as any).user;
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  let clientId = user.clientId;
+  const { searchParams } = new URL(req.url);
+
+  // Super Admin impersonation logic
+  if (user.role === 'SUPER_ADMIN') {
+    const targetClient = searchParams.get('clientId');
+    if (targetClient) clientId = targetClient;
+  }
+
+  const where: any = {};
+  // If we have a clientId (Client Admin or Super Admin viewing specific client), filter by it.
+  // If Super Admin viewing all (clientId is null), don't filter.
+  if (clientId) {
+    where.clientId = clientId;
+  }
+
   const users = await prisma.user.findMany({
-    where: { clientId },
+    where,
     select: {
       id: true,
       email: true,
       name: true,
       role: true,
+      clientId: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -29,27 +47,48 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const clientId = (session as any).user.clientId as string;
-  
+
+  const user = (session as any).user;
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  let clientId = user.clientId;
   const body = await req.json();
+
+  // Super Admin must specify target client
+  if (user.role === 'SUPER_ADMIN') {
+    if (!body.clientId) return NextResponse.json({ error: 'Super Admin must specify clientId' }, { status: 400 });
+    clientId = body.clientId;
+  }
+
+  // Client Admin creating user: Force to their own client
+  if (user.role === 'ADMIN') {
+    // Cannot assign to other client
+    if (body.clientId && body.clientId !== clientId) {
+      return NextResponse.json({ error: 'Forbidden: Cannot create user for another client' }, { status: 403 });
+    }
+  }
+
   const { email, name, password, role = 'CASHIER' } = body ?? {};
-  
+
   if (!email || typeof email !== 'string') return NextResponse.json({ error: 'Email is required' }, { status: 400 });
   if (!password || typeof password !== 'string' || password.length < 6) {
     return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
   }
+
+  // Role validation
+  // Client Admins can only create Admin or Cashier. Super Admin can potentially create anything, but usually Client Admin or Cashier.
+  // We'll restrict normal users to 'ADMIN' or 'CASHIER'.
   if (!['ADMIN', 'CASHIER'].includes(role)) {
     return NextResponse.json({ error: 'Role must be ADMIN or CASHIER' }, { status: 400 });
   }
-  
+
   // Check for duplicate email
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return NextResponse.json({ error: 'User with this email already exists' }, { status: 400 });
-  
+
   const hashedPassword = await bcrypt.hash(password, 10);
-  
-  const user = await prisma.user.create({
+
+  const newUser = await prisma.user.create({
     data: {
       email,
       name: name || null,
@@ -62,36 +101,42 @@ export async function POST(req: Request) {
       email: true,
       name: true,
       role: true,
+      clientId: true,
       createdAt: true,
       updatedAt: true,
     },
   });
-  
-  return NextResponse.json(user, { status: 201 });
+
+  return NextResponse.json(newUser, { status: 201 });
 }
 
 export async function PATCH(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const clientId = (session as any).user.clientId as string;
-  
+
+  const user = (session as any).user;
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
   const body = await req.json();
   const { id, email, name, password, role } = body ?? {};
-  
+
   if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-  
-  // Verify user belongs to client
+
   const existing = await prisma.user.findUnique({ where: { id } });
-  if (!existing || existing.clientId !== clientId) {
-    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  if (!existing) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+  // Access Control Logic
+  if (user.role === 'ADMIN') {
+    // Client Admin can only edit users in their own client
+    if (existing.clientId !== user.clientId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    // Prevent admin from changing their own role (optional safety check)
+    if (existing.id === user.id && role && role !== existing.role) {
+      return NextResponse.json({ error: 'Cannot change your own role' }, { status: 400 });
+    }
   }
-  
-  // Prevent admin from changing their own role (optional safety check)
-  if (existing.id === (session as any).user.id && role && role !== existing.role) {
-    return NextResponse.json({ error: 'Cannot change your own role' }, { status: 400 });
-  }
-  
+
   const updateData: any = {};
   if (email !== undefined && email !== existing.email) {
     // Check for duplicate email if changing
@@ -110,7 +155,7 @@ export async function PATCH(req: Request) {
     }
     updateData.role = role;
   }
-  
+
   const updated = await prisma.user.update({
     where: { id },
     data: updateData,
@@ -119,11 +164,12 @@ export async function PATCH(req: Request) {
       email: true,
       name: true,
       role: true,
+      clientId: true,
       createdAt: true,
       updatedAt: true,
     },
   });
-  
+
   return NextResponse.json(updated);
 }
 
@@ -131,24 +177,28 @@ export async function DELETE(req: Request) {
   try {
     const session = await auth();
     if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    const clientId = (session as any).user.clientId as string;
-    
+
+    const user = (session as any).user;
+    if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-    
-    // Verify user belongs to client
+
+    // Verify user exists
     const existing = await prisma.user.findUnique({ where: { id } });
-    if (!existing || existing.clientId !== clientId) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
+    if (!existing) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+
+    // Access Control
+    if (user.role === 'ADMIN') {
+      if (existing.clientId !== user.clientId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+      // Prevent admin from deleting themselves
+      if (existing.id === user.id) {
+        return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
+      }
     }
-    
-    // Prevent admin from deleting themselves
-    if (existing.id === (session as any).user.id) {
-      return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 400 });
-    }
-    
+
     // Check if user has related records that would prevent deletion
     const [salesCount, heldBillsCount, refundsCount] = await Promise.all([
       prisma.sale.count({ where: { cashierId: id } }),
@@ -161,20 +211,20 @@ export async function DELETE(req: Request) {
       if (salesCount > 0) reasons.push(`${salesCount} sale(s)`);
       if (heldBillsCount > 0) reasons.push(`${heldBillsCount} held bill(s)`);
       if (refundsCount > 0) reasons.push(`${refundsCount} refund(s)`);
-      
-      return NextResponse.json({ 
-        error: `Cannot delete user. This user has ${reasons.join(', ')} associated with their account. Please reassign or delete these records first.` 
+
+      return NextResponse.json({
+        error: `Cannot delete user. This user has ${reasons.join(', ')} associated with their account. Please reassign or delete these records first.`
       }, { status: 400 });
     }
-    
+
     await prisma.user.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (e: any) {
     console.error('Delete user error:', e);
     // Handle Prisma foreign key constraint errors
     if (e.code === 'P2003' || e.message?.includes('Foreign key constraint')) {
-      return NextResponse.json({ 
-        error: 'Cannot delete user. This user has records (sales, held bills, or refunds) associated with their account. Please reassign or delete these records first.' 
+      return NextResponse.json({
+        error: 'Cannot delete user. This user has records (sales, held bills, or refunds) associated with their account. Please reassign or delete these records first.'
       }, { status: 400 });
     }
     return NextResponse.json({ error: e?.message || 'Failed to delete user' }, { status: 500 });

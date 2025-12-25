@@ -28,6 +28,8 @@ type Sale = {
   couponValue?: number | null;
   paymentMethod?: string | null;
   fbrInvoiceId?: string | null;
+  type?: string;
+  refunds?: { id: string; total: number }[];
 };
 
 export default function CashierOrdersPage() {
@@ -109,8 +111,8 @@ export default function CashierOrdersPage() {
             ${setting?.showCashier !== false ? `Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}<br/>` : ''}
             Payment Method: ${sale.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
             ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
-              ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
-              : ''}
+        ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+        : ''}
           </div>
           <table>
             <thead>
@@ -177,7 +179,14 @@ export default function CashierOrdersPage() {
             >
               <div className="flex justify-between items-start">
                 <div>
-                  <div className="font-semibold">Order: {sale.orderId}</div>
+                  <div className="font-semibold flex items-center">
+                    Order: {sale.orderId}
+                    {(sale.refunds && sale.refunds.length > 0 || sale.items?.some(i => i.returnedQuantity > 0)) && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-red-100 text-red-700 rounded font-medium border border-red-200">
+                        Refunded
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-gray-600">
                     {new Date(sale.createdAt).toLocaleString()} • {sale.items.length} item(s)
                   </div>

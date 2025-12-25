@@ -32,13 +32,16 @@ export async function POST(req: Request) {
   if (!['PERCENT', 'AMOUNT'].includes(type)) return NextResponse.json({ error: 'Type must be PERCENT or AMOUNT' }, { status: 400 });
   const val = Number(value);
   if (Number.isNaN(val)) return NextResponse.json({ error: 'Value must be a number' }, { status: 400 });
-  
-  // Check for duplicate code
-  const existing = await prisma.coupon.findUnique({
-    where: { code: code.toUpperCase() },
+
+  // Check for duplicate code (scoped to client)
+  const existing = await prisma.coupon.findFirst({
+    where: {
+      code: code.toUpperCase(),
+      clientId
+    },
   });
   if (existing) return NextResponse.json({ error: 'Coupon code already exists' }, { status: 400 });
-  
+
   const created = await prisma.coupon.create({
     data: {
       code: code.toUpperCase(),
@@ -61,19 +64,22 @@ export async function PATCH(req: Request) {
   const body = await req.json();
   const { id, code, type, value, isActive, startsAt, endsAt } = body ?? {};
   if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-  
+
   // Verify coupon belongs to client
   const existing = await prisma.coupon.findUnique({ where: { id } });
   if (!existing || existing.clientId !== clientId) {
     return NextResponse.json({ error: 'Coupon not found' }, { status: 404 });
   }
-  
+
   const updateData: any = {};
   if (code !== undefined) {
     // Check for duplicate code if changing
     if (code.toUpperCase() !== existing.code) {
-      const duplicate = await prisma.coupon.findUnique({
-        where: { code: code.toUpperCase() },
+      const duplicate = await prisma.coupon.findFirst({
+        where: {
+          code: code.toUpperCase(),
+          clientId
+        },
       });
       if (duplicate) return NextResponse.json({ error: 'Coupon code already exists' }, { status: 400 });
     }
@@ -91,7 +97,7 @@ export async function PATCH(req: Request) {
   if (isActive !== undefined) updateData.isActive = isActive;
   if (startsAt !== undefined) updateData.startsAt = startsAt ? new Date(startsAt) : null;
   if (endsAt !== undefined) updateData.endsAt = endsAt ? new Date(endsAt) : null;
-  
+
   const updated = await prisma.coupon.update({
     where: { id },
     data: updateData,
@@ -107,13 +113,13 @@ export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
-  
+
   // Verify coupon belongs to client
   const existing = await prisma.coupon.findUnique({ where: { id } });
   if (!existing || existing.clientId !== clientId) {
     return NextResponse.json({ error: 'Coupon not found' }, { status: 404 });
   }
-  
+
   await prisma.coupon.delete({ where: { id } });
   return NextResponse.json({ success: true });
 }

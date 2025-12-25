@@ -7,10 +7,25 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const clientId = (session as any).user.clientId as string;
+
+  const user = (session as any).user;
+  let clientId = user.clientId;
   const { searchParams } = new URL(req.url);
+
+  // Super Admin Logic: Allow impersonation or view all
+  if (user.role === 'SUPER_ADMIN') {
+    const targetClient = searchParams.get('clientId');
+    if (targetClient) clientId = targetClient;
+    // If no clientId is set here, clientId remains null, so we won't filter by it (view all)
+  }
+
   const search = searchParams.get('search') || '';
-  const where: any = { clientId };
+  const where: any = {};
+
+  if (clientId) {
+    where.clientId = clientId;
+  }
+
   if (search) {
     where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }];
   }
@@ -30,9 +45,19 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const clientId = (session as any).user.clientId as string;
+
+  const user = (session as any).user;
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  let clientId = user.clientId;
   const data = await req.json();
+
+  // Super Admin must specify target client
+  if (user.role === 'SUPER_ADMIN') {
+    if (!data.clientId) return NextResponse.json({ error: 'Super Admin must specify clientId' }, { status: 400 });
+    clientId = data.clientId;
+  }
+
   const {
     name,
     sku,
@@ -57,54 +82,54 @@ export async function POST(req: Request) {
   const variantData =
     type === 'VARIANT' && Array.isArray(variants)
       ? variants
-          .map((v: any) => {
-            // Apply default price if variant price is 0 or not set
-            let variantPrice = Number(v.price) || 0;
-            if (variantPrice === 0 || Number.isNaN(variantPrice)) {
-              variantPrice = priceNum; // Use product default price
-            }
-            
-            // Apply default cost price if variant cost price is not set
-            let variantCostPrice: number | null = null;
-            if (v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') {
-              variantCostPrice = Number(v.costPrice);
-            } else if (costNum !== null) {
-              variantCostPrice = costNum; // Use product default cost price
-            }
-            
-            // Handle attributes (now comes as an object directly)
-            const attributes: any = v.attributes || {};
-            // Legacy support for old format
-            if (v.color) attributes.color = v.color;
-            if (v.size) attributes.size = v.size;
-            if (v.weight) attributes.weight = v.weight;
-            if (v.customAttributes && typeof v.customAttributes === 'object') {
-              Object.assign(attributes, v.customAttributes);
-            }
-            
-            return {
-              name: v.name || null,
-              sku: v.sku || null,
-              price: variantPrice,
-              costPrice: variantCostPrice,
-              stock: v.stock !== undefined ? Number(v.stock) || 0 : 0,
-              lowStockAt: v.lowStockAt !== undefined && v.lowStockAt !== null ? Number(v.lowStockAt) : null,
-              attributes: Object.keys(attributes).length > 0 ? attributes : null,
-            };
-          })
-          .filter((v) => v !== null && v.price > 0) // Ensure price is valid
+        .map((v: any) => {
+          // Apply default price if variant price is 0 or not set
+          let variantPrice = Number(v.price) || 0;
+          if (variantPrice === 0 || Number.isNaN(variantPrice)) {
+            variantPrice = priceNum; // Use product default price
+          }
+
+          // Apply default cost price if variant cost price is not set
+          let variantCostPrice: number | null = null;
+          if (v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') {
+            variantCostPrice = Number(v.costPrice);
+          } else if (costNum !== null) {
+            variantCostPrice = costNum; // Use product default cost price
+          }
+
+          // Handle attributes (now comes as an object directly)
+          const attributes: any = v.attributes || {};
+          // Legacy support for old format
+          if (v.color) attributes.color = v.color;
+          if (v.size) attributes.size = v.size;
+          if (v.weight) attributes.weight = v.weight;
+          if (v.customAttributes && typeof v.customAttributes === 'object') {
+            Object.assign(attributes, v.customAttributes);
+          }
+
+          return {
+            name: v.name || null,
+            sku: v.sku || null,
+            price: variantPrice,
+            costPrice: variantCostPrice,
+            stock: v.stock !== undefined ? Number(v.stock) || 0 : 0,
+            lowStockAt: v.lowStockAt !== undefined && v.lowStockAt !== null ? Number(v.lowStockAt) : null,
+            attributes: Object.keys(attributes).length > 0 ? attributes : null,
+          };
+        })
+        .filter((v) => v !== null && v.price > 0) // Ensure price is valid
       : [];
 
   // Handle raw materials for COMPOSITE type products
   const materialData =
     type === 'COMPOSITE' && Array.isArray(rawMaterials)
       ? rawMaterials
-          .map((m: any) => ({
-            rawMaterialId: m.rawMaterialId,
-            quantity: Number(m.quantity) || 1,
-            unit: m.unit || 'unit',
-          }))
-          .filter((m) => m.rawMaterialId && !Number.isNaN(m.quantity))
+        .map((m: any) => ({
+          rawMaterialId: m.rawMaterialId,
+          quantity: Number(m.quantity) || 1,
+          unit: m.unit || 'unit',
+        }))
+        .filter((m) => m.rawMaterialId && !Number.isNaN(m.quantity))
       : [];
 
   const created = await prisma.product.create({
@@ -152,7 +177,7 @@ export async function PATCH(req: Request) {
   if (simpleFields.isActive !== undefined) updatePayload.isActive = simpleFields.isActive;
   if (simpleFields.stock !== undefined) updatePayload.stock = Number(simpleFields.stock) || 0;
   if (simpleFields.lowStockAt !== undefined) updatePayload.lowStockAt = simpleFields.lowStockAt !== null ? Number(simpleFields.lowStockAt) : null;
-  
+
   // Get current product to use defaults for variants
   const currentProduct = await prisma.product.findUnique({
     where: { id },
@@ -160,7 +185,7 @@ export async function PATCH(req: Request) {
   });
   const defaultPrice = currentProduct ? Number(currentProduct.price) : (simpleFields.price !== undefined ? Number(simpleFields.price) : 0);
   const defaultCostPrice = currentProduct?.costPrice ? Number(currentProduct.costPrice) : (simpleFields.costPrice !== undefined && simpleFields.costPrice !== null ? Number(simpleFields.costPrice) : null);
-  
+
   // Handle variant updates with default price application
   if (Array.isArray(variants)) {
     // Delete all existing variants and recreate (simpler than upsert logic)
@@ -172,7 +197,7 @@ export async function PATCH(req: Request) {
         if (variantPrice === 0 || Number.isNaN(variantPrice)) {
           variantPrice = defaultPrice;
         }
-        
+
         // Apply default cost price if variant cost price is not set
         let variantCostPrice: number | null = null;
         if (v.costPrice !== undefined && v.costPrice !== null && v.costPrice !== '') {
@@ -180,7 +205,7 @@ export async function PATCH(req: Request) {
         } else if (defaultCostPrice !== null) {
           variantCostPrice = defaultCostPrice;
         }
-        
+
         const attributes: any = v.attributes || {};
         return {
           productId: id,
@@ -193,13 +218,13 @@ export async function PATCH(req: Request) {
           attributes: Object.keys(attributes).length > 0 ? attributes : null,
         };
       }).filter((v: any) => v.price > 0);
-      
+
       if (variantData.length > 0) {
         updatePayload.variants = { create: variantData };
       }
     }
   }
-  
+
   const updated = await prisma.product.update({
     where: { id },
     data: updatePayload,

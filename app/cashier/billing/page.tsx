@@ -10,7 +10,7 @@ type ProductVariant = {
   sku?: string | null;
   price: number;
   stock?: number;
-  attributes?: { color?: string; size?: string; weight?: string; [key: string]: any } | null;
+  attributes?: { color?: string; size?: string; weight?: string;[key: string]: any } | null;
 };
 
 type Product = {
@@ -65,7 +65,7 @@ export default function BillingPage() {
     try {
       const data = bill.data || {};
       const savedCart = data.cart || [];
-      
+
       // Reconstruct cart with full product objects
       // Get current products - if empty, fetch them
       let currentProducts = products;
@@ -74,9 +74,9 @@ export default function BillingPage() {
         currentProducts = productsData;
         setProducts(productsData);
       }
-      
+
       const reconstructedCart: CartLine[] = [];
-      
+
       for (const item of savedCart) {
         // If item already has full product object, use it
         if (item.product && item.product.id) {
@@ -87,7 +87,7 @@ export default function BillingPage() {
             if (item.variant && item.variant.id) {
               variant = currentProduct.variants?.find((v: ProductVariant) => v.id === item.variant.id);
             }
-            
+
             reconstructedCart.push({
               product: currentProduct,
               quantity: item.quantity || 1,
@@ -104,7 +104,7 @@ export default function BillingPage() {
             if (item.variantId && product.variants) {
               variant = product.variants.find((v: ProductVariant) => v.id === item.variantId);
             }
-            
+
             reconstructedCart.push({
               product,
               quantity: item.quantity || 1,
@@ -115,11 +115,11 @@ export default function BillingPage() {
           }
         }
       }
-      
+
       if (reconstructedCart.length === 0 && savedCart.length > 0) {
         showError('Some products in the saved cart are no longer available');
       }
-      
+
       setCart(reconstructedCart);
       setCartDiscountType(data.cartDiscountType || 'AMOUNT');
       setCartDiscountValue(data.cartDiscountValue || 0);
@@ -131,7 +131,7 @@ export default function BillingPage() {
       setCartName(data.label || ''); // Preserve cart name if it exists
       setShowHeld(false);
       setInvoiceData(null);
-      
+
       if (reconstructedCart.length > 0) {
         showSuccess('Cart loaded successfully');
       }
@@ -150,7 +150,7 @@ export default function BillingPage() {
       .then((data) => {
         setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
       })
-      .catch(() => {});
+      .catch(() => { });
   }, [loadProducts]);
 
   // Handle loading held bill from Held Bills page
@@ -165,7 +165,7 @@ export default function BillingPage() {
     }
   }, [heldBills, products, loadHeldBill]);
 
-// Note: Invoice data is now only cleared when "New Order" is clicked, not automatically
+  // Note: Invoice data is now only cleared when "New Order" is clicked, not automatically
   const loadTaxes = async () => {
     const t = await fetch('/api/taxes').then((r) => r.json());
     const withNoTax = [{ id: 'none', name: 'No Tax', percent: 0, isDefault: false }, ...t];
@@ -219,25 +219,25 @@ export default function BillingPage() {
       const defaultTax = taxes.find((t) => t.isDefault);
       if (defaultTax) {
         // Ensure proper conversion - Prisma Decimal might need explicit Number() conversion
-        effectiveTaxPercent = typeof defaultTax.percent === 'number' 
-          ? defaultTax.percent 
+        effectiveTaxPercent = typeof defaultTax.percent === 'number'
+          ? defaultTax.percent
           : Number(defaultTax.percent);
       }
     } else {
       // Tax Exclusive mode: Use selected tax
       const selectedTax = taxes.find((t) => t.id === taxId);
       if (selectedTax) {
-        effectiveTaxPercent = typeof selectedTax.percent === 'number' 
-          ? selectedTax.percent 
+        effectiveTaxPercent = typeof selectedTax.percent === 'number'
+          ? selectedTax.percent
           : Number(selectedTax.percent);
       }
     }
-    
+
     let tax = 0;
     let total = 0;
-    
+
     const taxableBase = Math.max(0, afterDiscount - couponValue);
-    
+
     if (taxMode === 'INCLUSIVE' && effectiveTaxPercent > 0) {
       // Tax Inclusive: Product prices are final (tax included)
       // Extract tax using reverse calculation: Tax = (Price × DefaultTaxRate) / (100 + DefaultTaxRate)
@@ -251,7 +251,7 @@ export default function BillingPage() {
       tax = (taxableBase * effectiveTaxPercent) / 100;
       total = taxableBase + tax;
     }
-    
+
     return { subtotal, itemDiscountTotal, cartDiscountTotal, couponValue, taxPercent: effectiveTaxPercent, tax, total };
   }, [cart, cartDiscountType, cartDiscountValue, validatedCoupon, taxes, taxId, taxMode]);
 
@@ -263,9 +263,10 @@ export default function BillingPage() {
     } else if (product.type === 'VARIANT' && variant) {
       availableStock = (variant as any).stock || 0;
     } else if (product.type === 'COMPOSITE') {
-      // For composite products, check raw material availability
-      // This is a simplified check - in production, you'd check all materials
-      availableStock = product.stock || 0;
+      // For composite products, stock is determined by raw materials
+      // Since we don't have real-time raw material stock here, we allow adding to cart
+      // Backend will validate actual availability during checkout
+      availableStock = 999999;
     }
 
     // Check current cart quantity
@@ -304,7 +305,7 @@ export default function BillingPage() {
       } else if (item.product.type === 'VARIANT' && item.variant) {
         availableStock = item.variant?.stock || 0;
       } else if (item.product.type === 'COMPOSITE') {
-        availableStock = item.product.stock || 0;
+        availableStock = 999999;
       }
 
       if (qty > availableStock) {
@@ -333,7 +334,7 @@ export default function BillingPage() {
       showError('Please enter a coupon code');
       return;
     }
-    
+
     setApplyingCoupon(true);
     try {
       const res = await fetch(`/api/coupons/validate?code=${encodeURIComponent(couponCode.trim())}`);
@@ -476,21 +477,21 @@ export default function BillingPage() {
     const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
     const invoice = invoiceData;
     if (!invoice) return;
-    
+
     // Use unique window name to allow multiple prints
     const win = window.open('', `PRINT_${Date.now()}`, 'height=650,width=400');
     if (!win) return;
-    
+
     const logo = setting?.logoUrl ? `<img src=\"${setting.logoUrl}\" style=\"max-width:150px;\" />` : '';
     const header = setting?.headerText ? `<div>${setting.headerText}</div>` : '';
     const footer = setting?.footerText ? `<div>${setting.footerText}</div>` : '';
-    
+
     // CRITICAL: Only show FBR ID if BOTH conditions are met:
     // 1. includeFbrId is true (only set by "Print FBR Invoice" button)
     // 2. fbrIdToDisplay is provided (the actual FBR Invoice ID from API response)
     // This ensures "Print Invoice" button NEVER shows FBR ID
     const fbrId = includeFbrId && fbrIdToDisplay ? fbrIdToDisplay : null;
-    
+
     const items =
       invoice?.totals?.perItem
         ?.map(
@@ -518,8 +519,8 @@ export default function BillingPage() {
             ${setting?.showCashier !== false ? `Cashier: ${invoice.sale?.cashier?.name || invoice.sale?.cashier?.email || 'Unknown'}<br/>` : ''}
             Payment Method: ${invoice.sale?.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
             ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
-              ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
-              : ''}
+        ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+        : ''}
           </div>
           <table style="width:100%;font-size:12px;margin-top:8px;">
             <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -566,7 +567,7 @@ export default function BillingPage() {
 
     // Step 1: Send order data to FBR API and receive FBR Invoice Number
     const fbrId = await sendToFBR();
-    
+
     if (fbrId) {
       // Step 2: Wait a moment for state to update, then print with FBR ID
       setTimeout(() => {
@@ -664,8 +665,8 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6">
-    <div>
-      <h1 className="text-2xl font-semibold">Billing</h1>
+      <div>
+        <h1 className="text-2xl font-semibold">Billing</h1>
         <p className="mt-2 text-gray-600">Add items, apply discounts/coupons, and checkout.</p>
       </div>
 
@@ -792,8 +793,8 @@ export default function BillingPage() {
                         {line.variant.name || 'Variant'}{' '}
                         {line.variant.attributes
                           ? `(${Object.entries(line.variant.attributes)
-                              .map(([k, v]) => `${k}: ${v}`)
-                              .join(', ')})`
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join(', ')})`
                           : ''}{' '}
                         @ Rs. {Number(line.variant.price).toFixed(2)}
                       </div>
@@ -810,6 +811,7 @@ export default function BillingPage() {
                     value={line.quantity}
                     onChange={(e) => updateQuantity(`${line.product.id}:${line.variant?.id || 'base'}`, Number(e.target.value))}
                   />
+                  <label className="text-xs text-gray-700 ml-2">Item Discount</label>
                   <select
                     className="border rounded px-2 py-1 text-sm flex-1"
                     value={line.discountType || 'AMOUNT'}

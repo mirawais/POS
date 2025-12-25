@@ -4,6 +4,20 @@ import * as bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
+  const superAdminPassword = await bcrypt.hash('superadmin123', 10);
+  
+  await prisma.user.upsert({
+    where: { email: 'super@amanat.local' },
+    update: {},
+    create: {
+      email: 'super@amanat.local',
+      name: 'Super Admin',
+      password: superAdminPassword,
+      role: Role.SUPER_ADMIN,
+      clientId: null,
+    },
+  });
+
   const client = await prisma.client.upsert({
     where: { id: 'seed-client-1' },
     update: {},

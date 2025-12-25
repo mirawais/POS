@@ -13,7 +13,7 @@ type LineInput = {
   discountValue?: number | null;
 };
 
-// Generate unique order ID: YYYYMMDD-XXXXX (removed ORD- prefix)
+// Generate unique order ID: YYYYMMDD-XXXXX
 function generateOrderId(): string {
   const date = new Date();
   const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
@@ -26,15 +26,26 @@ export async function GET(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const clientId = user.clientId as string;
 
+    let clientId = user.clientId as string;
     const { searchParams } = new URL(req.url);
+
+    // Super Admin impersonation
+    if (user.role === 'SUPER_ADMIN') {
+      const targetClient = searchParams.get('clientId');
+      if (targetClient) clientId = targetClient;
+    }
+
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
     const cashierId = searchParams.get('cashierId');
     const orderId = searchParams.get('orderId');
 
-    const where: any = { clientId };
+    const where: any = {};
+    if (clientId) {
+      where.clientId = clientId;
+    }
+
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt.gte = new Date(startDate);
@@ -51,6 +62,7 @@ export async function GET(req: Request) {
       where,
       include: {
         cashier: { select: { id: true, name: true, email: true } },
+        refunds: { select: { id: true, refundId: true, total: true } },
         items: {
           include: {
             product: { select: { id: true, name: true, sku: true } },
@@ -59,7 +71,7 @@ export async function GET(req: Request) {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 1000, // Limit to prevent huge responses
+      take: 1000,
     });
 
     return NextResponse.json(sales);
@@ -74,7 +86,16 @@ export async function POST(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    const clientId = user.clientId as string;
+
+    let clientId = user.clientId as string;
+
+    // Super Admin theoretically shouldn't be making sales, but if they do:
+    if (user.role === 'SUPER_ADMIN') {
+      // Super Admin creating sales is an edge case best avoided to prevent data pollution.
+      if (!clientId) {
+        return NextResponse.json({ error: 'Super Admin cannot perform sales directly. Log in as a client user.' }, { status: 403 });
+      }
+    }
 
     const body = await req.json();
     const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId, paymentMethod = 'CASH' } = body ?? {};
@@ -88,10 +109,17 @@ export async function POST(req: Request) {
       where: { id: { in: productIds } },
       include: { variants: true, materials: { include: { rawMaterial: true } } },
     })) as any[];
+
+    // Verify all products belong to this client
+    const invalidProducts = products.filter(p => p.clientId !== clientId);
+    if (invalidProducts.length > 0) {
+      return NextResponse.json({ error: 'Security Violation: Attempting to sell products from another client' }, { status: 403 });
+    }
+
     const productMap = new Map(products.map((p) => [p.id, p]));
 
     const coupon = couponCode
-      ? await (prisma as any).coupon.findFirst({ where: { code: couponCode.toUpperCase(), isActive: true } })
+      ? await (prisma as any).coupon.findFirst({ where: { code: couponCode.toUpperCase(), isActive: true, clientId } })
       : null;
 
     // Fetch tax mode from invoice settings FIRST
@@ -108,9 +136,9 @@ export async function POST(req: Request) {
     const tax =
       taxId === 'none'
         ? null
-        : (taxId ? await (prisma as any).taxSetting.findUnique({ where: { id: taxId } }) : null) ||
-          defaultTax ||
-          null;
+        : (taxId ? await (prisma as any).taxSetting.findUnique({ where: { id: taxId, clientId } }) : null) ||
+        defaultTax ||
+        null;
 
     const itemInputs = (items as LineInput[]).map((line) => {
       const product = productMap.get(line.productId);
@@ -125,36 +153,31 @@ export async function POST(req: Request) {
       const discountRule =
         line.discountType && line.discountValue !== undefined && line.discountValue !== null
           ? {
-              scope: 'ITEM',
-              type: line.discountType,
-              value: Number(line.discountValue),
-            }
+            scope: 'ITEM',
+            type: line.discountType,
+            value: Number(line.discountValue),
+          }
           : null;
-      
+
       // Tax Inclusive mode: Always use default tax slab, ignore product-specific tax
       let perLineTaxPercent: number | undefined = undefined;
       if (taxMode === 'INCLUSIVE') {
-        // Use default tax slab rate for all products in Tax Inclusive mode
-        // Always use default tax rate regardless of product-specific tax settings
         if (defaultTax && !taxId) {
           perLineTaxPercent = Number(defaultTax.percent);
         } else if (taxId && taxId !== 'none') {
-          // If cart-level tax is selected, use that (should be default tax in Inclusive mode)
           perLineTaxPercent = undefined;
         } else if (defaultTax) {
-          // Fallback to default tax even if no tax selected
           perLineTaxPercent = Number(defaultTax.percent);
         }
       } else {
-        // Tax Exclusive mode: Use product-specific tax if no cart tax
         perLineTaxPercent =
           taxId && taxId !== 'none'
             ? undefined
             : product.defaultTaxId
-            ? Number(product.defaultTax?.percent ?? 0)
-            : 0;
+              ? Number(product.defaultTax?.percent ?? 0)
+              : 0;
       }
-      
+
       return {
         product,
         quantity: Number(line.quantity) || 1,
@@ -202,7 +225,6 @@ export async function POST(req: Request) {
         const product = productMap.get(line.productId);
         if (!product) continue;
 
-        // Create sale item
         await tx.saleItem.create({
           data: {
             clientId,
@@ -217,7 +239,6 @@ export async function POST(req: Request) {
           },
         });
 
-        // Deduct stock for simple products
         if (product.type === 'SIMPLE') {
           await tx.product.update({
             where: { id: product.id },
@@ -225,7 +246,6 @@ export async function POST(req: Request) {
           });
         }
 
-        // Deduct stock for variants
         if (product.type === 'VARIANT' && line.variantId) {
           await tx.productVariant.update({
             where: { id: line.variantId },
@@ -233,7 +253,6 @@ export async function POST(req: Request) {
           });
         }
 
-        // Deduct raw material stock for compound products
         if (product.type === 'COMPOSITE' && product.materials && product.materials.length > 0) {
           for (const material of product.materials) {
             const quantityToDeduct = Number(material.quantity) * line.quantity;
@@ -255,7 +274,6 @@ export async function POST(req: Request) {
       return saleRecord;
     });
 
-    // Fetch the sale with cashier information
     const saleWithCashier = await prisma.sale.findUnique({
       where: { id: sale.id },
       include: {

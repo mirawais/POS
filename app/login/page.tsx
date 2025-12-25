@@ -16,7 +16,7 @@ export default function LoginPage() {
         const session = await getSession();
         if (session && (session as any)?.user?.role) {
           const userRole = (session as any).user.role;
-          
+
           // Check for callbackUrl from URL params
           const urlParams = new URLSearchParams(window.location.search);
           const callbackUrl = urlParams.get('callbackUrl');
@@ -24,9 +24,11 @@ export default function LoginPage() {
             window.location.href = callbackUrl;
             return;
           }
-          
+
           // Redirect based on role
-          if (userRole === 'ADMIN') {
+          if (userRole === 'SUPER_ADMIN') {
+            window.location.href = '/super-admin';
+          } else if (userRole === 'ADMIN') {
             window.location.href = '/admin/dashboard';
           } else if (userRole === 'CASHIER') {
             window.location.href = '/cashier/billing';
@@ -39,13 +41,13 @@ export default function LoginPage() {
       } catch (sessionError) {
         console.error('Session fetch error:', sessionError);
       }
-      
+
       // Wait before retry
       if (i < retries - 1) {
         await new Promise(resolve => setTimeout(resolve, 200 * (i + 1)));
       }
     }
-    
+
     // If all retries fail, redirect to admin (middleware will handle if needed)
     window.location.href = '/admin/dashboard';
   };
@@ -54,12 +56,12 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await signIn('credentials', { 
-        redirect: false, 
-        email, 
-        password 
+      const res = await signIn('credentials', {
+        redirect: false,
+        email,
+        password
       });
-      
+
       if ((res as any)?.error) {
         showError('Invalid email or password. Please try again.');
       } else if (res?.ok) {
@@ -81,9 +83,9 @@ export default function LoginPage() {
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
           <label className="block text-sm font-medium">Email</label>
-          <input 
-            className="mt-1 w-full border rounded px-3 py-2" 
-            value={email} 
+          <input
+            className="mt-1 w-full border rounded px-3 py-2"
+            value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={loading}
             required
@@ -91,17 +93,17 @@ export default function LoginPage() {
         </div>
         <div>
           <label className="block text-sm font-medium">Password</label>
-          <input 
-            type="password" 
-            className="mt-1 w-full border rounded px-3 py-2" 
-            value={password} 
+          <input
+            type="password"
+            className="mt-1 w-full border rounded px-3 py-2"
+            value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
             required
           />
         </div>
-        <button 
-          type="submit" 
+        <button
+          type="submit"
           className="w-full bg-blue-600 text-white py-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={loading}
         >

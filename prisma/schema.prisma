@@ -33,6 +33,7 @@ model Client {
 }
 
 enum Role {
+  SUPER_ADMIN
   ADMIN
   CASHIER
 }
@@ -43,8 +44,8 @@ model User {
   name      String?
   password  String
   role      Role     @default(CASHIER)
-  clientId  String   @map("client_id")
-  client    Client   @relation(fields: [clientId], references: [id])
+  clientId  String?  @map("client_id")
+  client    Client?  @relation(fields: [clientId], references: [id])
   sales     Sale[]
   heldBills HeldBill[]
   refunds   Refund[]
@@ -68,12 +69,13 @@ enum DiscountScope {
   CART
 }
 
+// Product Model Update
 model Product {
   id           String       @id @default(cuid())
   clientId     String       @map("client_id")
   client       Client       @relation(fields: [clientId], references: [id])
   name         String
-  sku          String       @unique
+  sku          String
   type         ProductType  @default(SIMPLE)
   price        Decimal      @db.Decimal(10,2)
   costPrice    Decimal?     @db.Decimal(10,2) @map("cost_price")
@@ -90,6 +92,8 @@ model Product {
   variants     ProductVariant[]
   saleItems    SaleItem[]
   refundItems  RefundItem[]
+
+  @@unique([clientId, sku])
 }
 
 model RawMaterial {
@@ -97,15 +101,18 @@ model RawMaterial {
   clientId   String    @map("client_id")
   client     Client    @relation(fields: [clientId], references: [id])
   name       String
-  sku        String    @unique
+  sku        String
   unit       String?   @default("unit")
   stock      Int       @default(0)
   lowStockAt Int?      @map("low_stock_at")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
   usedIn     ProductRawMaterial[]
+
+  @@unique([clientId, sku])
 }
 
+// ProductRawMaterial and other missing models restored
 model ProductRawMaterial {
   id             String       @id @default(cuid())
   clientId       String       @map("client_id")
@@ -239,7 +246,7 @@ model Coupon {
   id        String      @id @default(cuid())
   clientId  String      @map("client_id")
   client    Client      @relation(fields: [clientId], references: [id])
-  code      String      @unique
+  code      String
   type      CouponType
   value     Decimal     @db.Decimal(10,2)
   isActive  Boolean     @default(true) @map("is_active")
@@ -247,6 +254,8 @@ model Coupon {
   endsAt    DateTime?
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
+
+  @@unique([clientId, code])
 }
 
 model DiscountRule {

@@ -14,14 +14,30 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // role-based guard for admin vs cashier spaces
-  if (req.nextUrl.pathname.startsWith('/admin') && token.role !== 'ADMIN') {
+  // Role-based guards
+  const role = String(token.role);
+
+  // 1. Super Admin ONLY area
+  if (req.nextUrl.pathname.startsWith('/super-admin') && role !== 'SUPER_ADMIN') {
+    const url = req.nextUrl.clone();
+    // Redirect unauthorized users to their dashboard or login
+    if (role === 'ADMIN') url.pathname = '/admin/dashboard';
+    else if (role === 'CASHIER') url.pathname = '/cashier/billing';
+    else url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
+
+  // 2. Client Admin area (Super Admin can also access if we want, or we keep them separate. 
+  // Requirement says "Super Admin can access... all data". 
+  // Usually Super Admin uses their own dashboard. Let's block them from /admin to avoid confusion unless impersonating.)
+  if (req.nextUrl.pathname.startsWith('/admin') && role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
     const url = req.nextUrl.clone();
     url.pathname = '/cashier/billing';
     return NextResponse.redirect(url);
   }
 
-  if (req.nextUrl.pathname.startsWith('/cashier') && !['ADMIN', 'CASHIER'].includes(String(token.role))) {
+  // 3. Cashier area (Admins and Super Admins can access)
+  if (req.nextUrl.pathname.startsWith('/cashier') && !['SUPER_ADMIN', 'ADMIN', 'CASHIER'].includes(role)) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
