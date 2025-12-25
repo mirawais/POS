@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const superAdminPassword = await bcrypt.hash('superadmin123', 10);
-  
+
   await prisma.user.upsert({
     where: { email: 'super@amanat.local' },
     update: {},
@@ -133,7 +133,12 @@ async function main() {
   });
 
   const rm1 = await prisma.rawMaterial.upsert({
-    where: { sku: 'RM-COFFEE-BEANS' },
+    where: {
+      clientId_sku: {
+        clientId: client.id,
+        sku: 'RM-COFFEE-BEANS',
+      },
+    },
     update: {},
     create: {
       clientId: client.id,
@@ -146,7 +151,12 @@ async function main() {
   });
 
   const rm2 = await prisma.rawMaterial.upsert({
-    where: { sku: 'RM-MILK' },
+    where: {
+      clientId_sku: {
+        clientId: client.id,
+        sku: 'RM-MILK',
+      },
+    },
     update: {},
     create: {
       clientId: client.id,
@@ -159,7 +169,12 @@ async function main() {
   });
 
   const espresso = await prisma.product.upsert({
-    where: { sku: 'PR-ESPRESSO' },
+    where: {
+      clientId_sku: {
+        clientId: client.id,
+        sku: 'PR-ESPRESSO',
+      },
+    },
     update: {},
     create: {
       clientId: client.id,
@@ -175,7 +190,12 @@ async function main() {
   });
 
   const milkCoffee = await prisma.product.upsert({
-    where: { sku: 'PR-MILK-COFFEE' },
+    where: {
+      clientId_sku: {
+        clientId: client.id,
+        sku: 'PR-MILK-COFFEE',
+      },
+    },
     update: {},
     create: {
       clientId: client.id,
