@@ -130,7 +130,8 @@ export default function CashierExchangesPage() {
         if (item) {
           // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
           // Based on debug data, item.total is Gross (before discount), so we must subtract discount.
-          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+          const itemWithFields = item as any; // Type assertion for discount/tax fields
+          const lineNet = Number(item.total) - Number(itemWithFields.discount || 0) + Number(itemWithFields.tax || 0);
           const unitTotal = lineNet / item.quantity;
           returnValue += unitTotal * returnQty;
         }
@@ -280,7 +281,8 @@ export default function CashierExchangesPage() {
         if (item) {
           // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
           // Use 'any' cast to avoid TS errors if types are not fully defined in frontend
-          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+          const itemWithFields = item as any;
+          const lineNet = Number(item.total) - Number(itemWithFields.discount || 0) + Number(itemWithFields.tax || 0);
           const unitTotal = lineNet / item.quantity;
           totalReturnedValue += unitTotal * returnQty;
         }
@@ -618,7 +620,8 @@ export default function CashierExchangesPage() {
                         const item = selectedSale.items.find((i: any) => i.id === saleItemId);
                         if (item) {
                           // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
-                          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+                          const itemWithFields = item as any;
+                          const lineNet = Number(item.total) - Number(itemWithFields.discount || 0) + Number(itemWithFields.tax || 0);
                           const unitTotal = lineNet / item.quantity;
                           totalReturned += unitTotal * returnQty;
                         }
