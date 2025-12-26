@@ -1,0 +1,75 @@
+[
+  {
+    "orderId": "20251226-JQETI",
+    "type": "EXCHANGE",
+    "total": "4000",
+    "items": [
+      {
+        "returnedQuantity": 0
+      },
+      {
+        "returnedQuantity": 0
+      }
+    ],
+    "refunds": []
+  },
+  {
+    "orderId": "20251226-SL449",
+    "type": "SALE",
+    "total": "9500",
+    "items": [
+      {
+        "returnedQuantity": 0
+      },
+      {
+        "returnedQuantity": 0
+      },
+      {
+        "returnedQuantity": 1
+      }
+    ],
+    "refunds": []
+  },
+  {
+    "orderId": "20251226-7INHN",
+    "type": "SALE",
+    "total": "9000",
+    "items": [
+      {
+        "returnedQuantity": 0
+      },
+      {
+        "returnedQuantity": 0
+      },
+      {
+        "returnedQuantity": 0
+      }
+    ],
+    "refunds": []
+  },
+  {
+    "orderId": "20251226-Y863C",
+    "type": "EXCHANGE",
+    "total": "5000",
+    "items": [
+      {
+        "returnedQuantity": 0
+      }
+    ],
+    "refunds": []
+  },
+  {
+    "orderId": "20251226-1T5G1",
+    "type": "SALE",
+    "total": "6000",
+    "items": [
+      {
+        "returnedQuantity": 0
+      },
+      {
+        "returnedQuantity": 1
+      }
+    ],
+    "refunds": []
+  }
+]

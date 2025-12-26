@@ -1,8 +1,9 @@
 /* eslint-disable @next/next/no-img-element */
 'use client';
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
+import { Wifi, WifiOff, RefreshCcw } from 'lucide-react';
 
 type ProductVariant = {
   id: string;
@@ -50,16 +51,37 @@ export default function BillingPage() {
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const { showError, showSuccess, showInfo } = useToast();
   const [showHeld, setShowHeld] = useState(false);
-  const [invoiceData, setInvoiceData] = useState<any | null>(null); // This is the first declaration (Line 44)
+  const [invoiceData, setInvoiceData] = useState<any | null>(null);
   const [currentHeldBillId, setCurrentHeldBillId] = useState<string | null>(null);
   const [showCartNamePrompt, setShowCartNamePrompt] = useState(false);
   const [cartName, setCartName] = useState('');
-  const [isLoadedCart, setIsLoadedCart] = useState(false); // Track if current cart was loaded from saved carts
+  const [isLoadedCart, setIsLoadedCart] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+
+  // Offline Mode State
+  const [isOnline, setIsOnline] = useState(true);
+  const [offlineOrderCount, setOfflineOrderCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const loadProducts = useCallback(async (term: string) => {
-    const p = await fetch(`/api/products${term ? `?search=${encodeURIComponent(term)}` : ''}`).then((r) => r.json());
-    setProducts(p);
-  }, []);
+    try {
+      const res = await fetch(`/api/products${term ? `?search=${encodeURIComponent(term)}` : ''}`);
+      if (!res.ok) throw new Error('Failed to fetch');
+      const p = await res.json();
+      setProducts(p);
+      if (!term) localStorage.setItem('cached_products', JSON.stringify(p));
+    } catch (e) {
+      // If offline or failed, try cache
+      if (!term) {
+        const cached = localStorage.getItem('cached_products');
+        if (cached) {
+          setProducts(JSON.parse(cached));
+          if (navigator.onLine) showError('Using cached products'); // Only show if we thought we were online
+        }
+      }
+    }
+  }, [showError]);
 
   const loadHeldBill = useCallback(async (bill: any) => {
     try {
@@ -144,13 +166,24 @@ export default function BillingPage() {
     loadProducts('');
     loadTaxes();
     loadHeld();
-    // Load tax mode from invoice settings
-    fetch('/api/invoice-settings')
-      .then((r) => r.json())
-      .then((data) => {
+
+    // Load caching for settings
+    const loadSettings = async () => {
+      try {
+        const r = await fetch('/api/invoice-settings');
+        if (!r.ok) throw new Error('Failed');
+        const data = await r.json();
         setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
-      })
-      .catch(() => { });
+        localStorage.setItem('cached_settings', JSON.stringify(data));
+      } catch (e) {
+        const cached = localStorage.getItem('cached_settings');
+        if (cached) {
+          const data = JSON.parse(cached);
+          setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
+        }
+      }
+    };
+    loadSettings();
   }, [loadProducts]);
 
   // Handle loading held bill from Held Bills page
@@ -167,16 +200,40 @@ export default function BillingPage() {
 
   // Note: Invoice data is now only cleared when "New Order" is clicked, not automatically
   const loadTaxes = async () => {
-    const t = await fetch('/api/taxes').then((r) => r.json());
-    const withNoTax = [{ id: 'none', name: 'No Tax', percent: 0, isDefault: false }, ...t];
-    setTaxes(withNoTax);
-    const defTax = t.find((x: Tax) => x.isDefault);
-    if (defTax) setTaxId(defTax.id);
+    try {
+      const res = await fetch('/api/taxes');
+      if (!res.ok) throw new Error('Failed');
+      const t = await res.json();
+      const withNoTax = [{ id: 'none', name: 'No Tax', percent: 0, isDefault: false }, ...t];
+      setTaxes(withNoTax);
+      localStorage.setItem('cached_taxes', JSON.stringify(withNoTax));
+      const defTax = t.find((x: Tax) => x.isDefault);
+      if (defTax) setTaxId(defTax.id);
+    } catch (e) {
+      const cached = localStorage.getItem('cached_taxes');
+      if (cached) {
+        const t = JSON.parse(cached);
+        setTaxes(t);
+        const defTax = t.find((x: Tax) => x.isDefault);
+        if (defTax) setTaxId(defTax.id);
+      }
+    }
   };
   const loadHeld = async () => {
-    const hb = await fetch('/api/held-bills').then((r) => r.json());
-    setHeldBills(hb);
-    return hb;
+    try {
+      const hb = await fetch('/api/held-bills').then((r) => r.json());
+      setHeldBills(hb);
+      localStorage.setItem('cached_held_bills', JSON.stringify(hb));
+      return hb;
+    } catch (e) {
+      // Offline fallback
+      const cached = localStorage.getItem('cached_held_bills');
+      if (cached) {
+        setHeldBills(JSON.parse(cached));
+      }
+      // Don't rethrow, just return empty/cached to prevent crash
+      return cached ? JSON.parse(cached) : [];
+    }
   };
 
   const totals = useMemo(() => {
@@ -185,16 +242,29 @@ export default function BillingPage() {
     let cartDiscountTotal = 0;
     let couponValue = 0;
 
-    cart.forEach((line) => {
-      // Item totals always use the original display price (Quantity × Price)
-      // Do not change display prices; tax is calculated internally
+    const perItem = cart.map((line) => {
       const unitPrice = line.variant?.price ?? line.product.price;
-      const base = unitPrice * line.quantity; // Item total = Quantity × Price (display price)
-      subtotal += base;
+      const base = unitPrice * line.quantity;
+      let discount = 0;
       if (line.discountType && line.discountValue) {
-        const disc = line.discountType === 'PERCENT' ? (base * line.discountValue) / 100 : line.discountValue * line.quantity;
-        itemDiscountTotal += disc;
+        discount = line.discountType === 'PERCENT' ? (base * line.discountValue) / 100 : line.discountValue * line.quantity;
       }
+
+      return {
+        productId: line.product.id,
+        productName: line.product.name,
+        variantId: line.variant?.id,
+        variantName: line.variant?.name,
+        quantity: line.quantity,
+        price: Number(unitPrice),
+        discount: Number(discount),
+        total: Number(base - discount)
+      };
+    });
+
+    perItem.forEach(i => {
+      subtotal += i.price * i.quantity;
+      itemDiscountTotal += i.discount;
     });
 
     if (cartDiscountValue) {
@@ -204,7 +274,6 @@ export default function BillingPage() {
 
     const afterDiscount = Math.max(0, subtotal - itemDiscountTotal - cartDiscountTotal);
     if (validatedCoupon) {
-      // Calculate coupon discount based on validated coupon
       if (validatedCoupon.type === 'PERCENT') {
         couponValue = (afterDiscount * Number(validatedCoupon.value)) / 100;
       } else {
@@ -212,47 +281,42 @@ export default function BillingPage() {
       }
     }
 
-    // Tax Inclusive mode: Always use default tax slab, ignore product-specific tax
     let effectiveTaxPercent = 0;
     if (taxMode === 'INCLUSIVE') {
-      // In Tax Inclusive mode, always use default tax slab
       const defaultTax = taxes.find((t) => t.isDefault);
       if (defaultTax) {
-        // Ensure proper conversion - Prisma Decimal might need explicit Number() conversion
-        effectiveTaxPercent = typeof defaultTax.percent === 'number'
-          ? defaultTax.percent
-          : Number(defaultTax.percent);
+        effectiveTaxPercent = Number(defaultTax.percent);
       }
     } else {
-      // Tax Exclusive mode: Use selected tax
       const selectedTax = taxes.find((t) => t.id === taxId);
       if (selectedTax) {
-        effectiveTaxPercent = typeof selectedTax.percent === 'number'
-          ? selectedTax.percent
-          : Number(selectedTax.percent);
+        effectiveTaxPercent = Number(selectedTax.percent);
       }
     }
 
     let tax = 0;
     let total = 0;
-
     const taxableBase = Math.max(0, afterDiscount - couponValue);
 
     if (taxMode === 'INCLUSIVE' && effectiveTaxPercent > 0) {
-      // Tax Inclusive: Product prices are final (tax included)
-      // Extract tax using reverse calculation: Tax = (Price × DefaultTaxRate) / (100 + DefaultTaxRate)
-      // Example: (2500 × 5) / (100 + 5) = 12500 / 105 = 119.05
-      // Always use default tax slab rate for Tax Inclusive mode
       tax = (taxableBase * effectiveTaxPercent) / (100 + effectiveTaxPercent);
-      // Total = Subtotal - Discount (tax already included in prices)
       total = Math.max(0, afterDiscount - couponValue);
     } else {
-      // Tax Exclusive: Add tax on top
       tax = (taxableBase * effectiveTaxPercent) / 100;
       total = taxableBase + tax;
     }
 
-    return { subtotal, itemDiscountTotal, cartDiscountTotal, couponValue, taxPercent: effectiveTaxPercent, tax, total };
+    return {
+      subtotal,
+      itemDiscountTotal,
+      cartDiscountTotal,
+      couponValue,
+      taxPercent: effectiveTaxPercent,
+      tax,
+      taxAmount: tax,
+      total,
+      perItem
+    };
   }, [cart, cartDiscountType, cartDiscountValue, validatedCoupon, taxes, taxId, taxMode]);
 
   const addToCart = (product: Product, variant?: ProductVariant) => {
@@ -371,34 +435,215 @@ export default function BillingPage() {
     setShowPaymentModal(true);
   };
 
+  const syncLock = useRef(false);
+
+  // Helper to remove item from local storage queue immediately after success
+  const removeFromQueue = (key: string, itemId: string) => {
+    const stored = localStorage.getItem(key);
+    if (!stored) return;
+    try {
+      const queue = JSON.parse(stored);
+      const filtered = queue.filter((i: any) => i.id !== itemId);
+      if (filtered.length === 0) {
+        localStorage.removeItem(key);
+      } else {
+        localStorage.setItem(key, JSON.stringify(filtered));
+      }
+    } catch (e) {
+      console.error(`Failed to update queue ${key}`, e);
+    }
+  };
+
+  const syncHeldBills = useCallback(async () => {
+    if (!navigator.onLine || syncLock.current) return;
+    const stored = localStorage.getItem('offline_held_queue');
+    if (!stored) return;
+
+    try {
+      const queue = JSON.parse(stored);
+      if (!Array.isArray(queue) || queue.length === 0) return;
+
+      syncLock.current = true;
+      setIsSyncing(true);
+
+      for (const bill of queue) {
+        try {
+          const isOfflineId = bill.id.startsWith('OFF-');
+          const dataToSync = {
+            data: bill.data,
+            id: isOfflineId ? undefined : bill.id
+          };
+
+          const res = await fetch('/api/held-bills', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dataToSync),
+          });
+
+          if (res.ok) {
+            removeFromQueue('offline_held_queue', bill.id);
+          }
+        } catch (e) {
+          console.error("Failed to sync held bill", bill.id, e);
+        }
+      }
+      loadHeld(); // Refresh list from server
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSyncing(false);
+      syncLock.current = false;
+    }
+  }, [loadHeld]);
+
+  const syncOfflineOrders = useCallback(async () => {
+    if (!navigator.onLine || syncLock.current) return;
+
+    // Set lock IMMEDIATELY to prevent concurrent calls
+    syncLock.current = true;
+    setIsSyncing(true);
+
+    try {
+      // Sync held bills first (they might be dependencies)
+      const heldStored = localStorage.getItem('offline_held_queue');
+      if (heldStored) {
+        const heldQueue = JSON.parse(heldStored);
+        if (Array.isArray(heldQueue) && heldQueue.length > 0) {
+          for (const bill of heldQueue) {
+            try {
+              const isOfflineId = bill.id.startsWith('OFF-');
+              const dataToSync = {
+                data: bill.data,
+                id: isOfflineId ? undefined : bill.id
+              };
+
+              const res = await fetch('/api/held-bills', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(dataToSync),
+              });
+
+              if (res.ok) {
+                removeFromQueue('offline_held_queue', bill.id);
+              }
+            } catch (e) {
+              console.error("Failed to sync held bill", bill.id, e);
+            }
+          }
+          loadHeld();
+        }
+      }
+
+      // Now sync orders
+      const stored = localStorage.getItem('offline_orders');
+      if (!stored) return;
+
+      const orders = JSON.parse(stored);
+      if (!Array.isArray(orders) || orders.length === 0) return;
+
+      for (const order of orders) {
+        try {
+          const res = await fetch('/api/sales', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(order.payload),
+          });
+
+          if (res.ok) {
+            removeFromQueue('offline_orders', order.id);
+            setOfflineOrderCount(prev => Math.max(0, prev - 1));
+          } else {
+            throw new Error('Failed to post');
+          }
+        } catch (e) {
+          console.error("Sync failed for order", order.id, e);
+        }
+      }
+      showSuccess(`Offline sync completed.`);
+    } catch (e) {
+      console.error('Sync error', e);
+    } finally {
+      setIsSyncing(false);
+      syncLock.current = false;
+    }
+  }, [loadHeld, showSuccess]);
+
+  useEffect(() => {
+    // Initial check
+    setIsOnline(navigator.onLine);
+    const count = JSON.parse(localStorage.getItem('offline_orders') || '[]').length;
+    setOfflineOrderCount(count);
+    if (navigator.onLine && count > 0) {
+      syncOfflineOrders();
+    }
+
+    const handleOnline = () => {
+      setIsOnline(true);
+      showSuccess('Back Online! Syncing data...');
+      syncOfflineOrders();
+      loadProducts(''); // Refresh data
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      showError('You are offline. Transactions will be saved locally.');
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const confirmCheckout = async () => {
     setLoading(true);
     setShowPaymentModal(false);
+
+    const orderPayload = {
+      items: cart.map((c) => ({
+        productId: c.product.id,
+        quantity: c.quantity,
+        discountType: c.discountType ?? null,
+        discountValue: c.discountValue ?? null,
+        variantId: c.variant?.id ?? null,
+      })),
+      cartDiscountType: cartDiscountValue ? cartDiscountType : null,
+      cartDiscountValue: cartDiscountValue || null,
+      couponCode: validatedCoupon?.code || couponCode || null,
+      taxId: taxId || null,
+      paymentMethod: paymentMethod,
+      heldBillId: currentHeldBillId || null,
+      customerName,
+      customerPhone,
+    };
+
     try {
+      if (!isOnline) {
+        throw new Error('Offline');
+      }
+
       const res = await fetch('/api/sales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart.map((c) => ({
-            productId: c.product.id,
-            quantity: c.quantity,
-            discountType: c.discountType ?? null,
-            discountValue: c.discountValue ?? null,
-            variantId: c.variant?.id ?? null,
-          })),
-          cartDiscountType: cartDiscountValue ? cartDiscountType : null,
-          cartDiscountValue: cartDiscountValue || null,
-          couponCode: validatedCoupon?.code || couponCode || null,
-          taxId: taxId || null,
-          paymentMethod: paymentMethod,
-          heldBillId: currentHeldBillId || null, // Pass held bill ID to delete after checkout
-        }),
+        body: JSON.stringify(orderPayload),
       });
+
       if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Checkout failed');
+        // If 5xx error or fetch failed, treat as potential offline candidate depending on error?
+        // For now, strict check on isOnline or fetch throwing exception.
+        // If fetch returns 400 (validation), we should NOT save offline.
+        // If fetch returns 500 or network error, we MIGHT save offline.
+        const contentType = res.headers.get("content-type");
+        if (contentType && contentType.indexOf("application/json") !== -1) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Checkout failed');
+        }
+        throw new Error('Network response was not ok');
       }
-      // Remove held bill from list if it was checked out
+
+      // ... Success logic
       if (currentHeldBillId) {
         setHeldBills((prev) => prev.filter((b) => b.id !== currentHeldBillId));
         setCurrentHeldBillId(null);
@@ -410,8 +655,46 @@ export default function BillingPage() {
       const data = await res.json();
       setInvoiceData(data);
       showSuccess(`Sale recorded. Total: Rs. ${Number(data?.totals?.total ?? 0).toFixed(2)}`);
+
     } catch (e: any) {
-      showError(e.message || 'Checkout failed');
+      if (e.message === 'Offline' || e.message === 'Failed to fetch' || !navigator.onLine) {
+        // Save Offline
+        const offlineOrder = {
+          id: `OFF-${Date.now()}`,
+          timestamp: Date.now(),
+          payload: orderPayload
+        };
+
+        const existing = JSON.parse(localStorage.getItem('offline_orders') || '[]');
+        const updated = [...existing, offlineOrder];
+        localStorage.setItem('offline_orders', JSON.stringify(updated));
+        setOfflineOrderCount(updated.length);
+
+        // Clear cart and show success
+        setCart([]);
+        setCouponCode('');
+        setValidatedCoupon(null);
+        setCartDiscountValue(0);
+        if (currentHeldBillId) {
+          setHeldBills((prev) => prev.filter((b) => b.id !== currentHeldBillId));
+          setCurrentHeldBillId(null);
+        }
+
+        // Mock invoice data for printing (limited)
+        const mockInvoice = {
+          sale: {
+            orderId: offlineOrder.id,
+            createdAt: new Date().toISOString(),
+            paymentMethod,
+            cashier: { name: 'Offline User' }
+          },
+          totals: totals // Use the locally calculated totals
+        };
+        setInvoiceData(mockInvoice);
+        showSuccess('Order saved OFFLINE. Will sync when online.');
+      } else {
+        showError(e.message || 'Checkout failed');
+      }
     } finally {
       setLoading(false);
     }
@@ -497,8 +780,9 @@ export default function BillingPage() {
         ?.map(
           (i: any) => {
             // Item total = Quantity × Unit Price only (no tax, no discount)
-            const itemTotal = i.price * i.quantity;
-            return `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${i.price.toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
+            const price = Number(i.price);
+            const itemTotal = price * i.quantity;
+            return `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${price.toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
           }
         )
         .join('') || '';
@@ -527,10 +811,10 @@ export default function BillingPage() {
             <tbody>${items}</tbody>
           </table>
           <div style="margin-top:8px;font-size:12px;">
-            Subtotal: Rs. ${invoice.totals.subtotal.toFixed(2)}<br/>
-            ${setting?.showDiscount !== false ? `Discount: Rs. ${(invoice.totals.itemDiscountTotal + invoice.totals.cartDiscountTotal + invoice.totals.couponValue).toFixed(2)}<br/>` : ''}
-            ${setting?.showTax !== false ? `Tax: Rs. ${invoice.totals.taxAmount.toFixed(2)}<br/>` : ''}
-            <strong>Total: Rs. ${invoice.totals.total.toFixed(2)}</strong>
+            Subtotal: Rs. ${Number(invoice.totals.subtotal).toFixed(2)}<br/>
+            ${setting?.showDiscount !== false ? `Discount: Rs. ${(Number(invoice.totals.itemDiscountTotal) + Number(invoice.totals.cartDiscountTotal) + Number(invoice.totals.couponValue)).toFixed(2)}<br/>` : ''}
+            ${setting?.showTax !== false ? `Tax: Rs. ${Number(invoice.totals.taxAmount).toFixed(2)}<br/>` : ''}
+            <strong>Total: Rs. ${Number(invoice.totals.total).toFixed(2)}</strong>
           </div>
           <div style="text-align:center;margin-top:12px;font-size:12px;">${footer}</div>
         </body>
@@ -589,6 +873,8 @@ export default function BillingPage() {
     setInvoiceData(null);
     setFbrInvoiceId(null);
     setCurrentHeldBillId(null);
+    setCustomerName('');
+    setCustomerPhone('');
     setIsLoadedCart(false); // Clear loaded cart flag
   };
 
@@ -627,6 +913,47 @@ export default function BillingPage() {
         taxId,
         label: name || cartName || existingLabel || `Cart ${new Date().toLocaleString()}`,
       };
+
+      if (!navigator.onLine) {
+        // Offline Save Logic
+        const offlineId = (currentHeldBillId && isLoadedCart) ? currentHeldBillId : `OFF-HELD-${Date.now()}`;
+        const offlineBill = {
+          id: offlineId,
+          createdAt: new Date().toISOString(),
+          data: payload,
+          isOffline: true
+        };
+
+        // 1. Update cached held bills (Display)
+        const cached = JSON.parse(localStorage.getItem('cached_held_bills') || '[]');
+        const updatedCached = (currentHeldBillId && isLoadedCart)
+          ? cached.map((b: any) => b.id === offlineId ? offlineBill : b)
+          : [offlineBill, ...cached];
+        localStorage.setItem('cached_held_bills', JSON.stringify(updatedCached));
+        setHeldBills(updatedCached);
+
+        // 2. Queue for Sync
+        const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
+        // Remove any previous update for same ID to avoid duplicates in queue
+        const filteredQueue = offlineQueue.filter((q: any) => q.id !== offlineId);
+        filteredQueue.push(offlineBill);
+        localStorage.setItem('offline_held_queue', JSON.stringify(filteredQueue));
+
+        if (currentHeldBillId && isLoadedCart) {
+          // Updated existing
+        } else {
+          // Created new
+          setCurrentHeldBillId(null);
+          setIsLoadedCart(false);
+        }
+
+        showSuccess('Cart saved OFFLINE.');
+        setShowCartNamePrompt(false);
+        setCartName('');
+        startNewOrder();
+        return;
+      }
+
       // Only pass id if we're updating a loaded cart, otherwise create new
       const res = await fetch('/api/held-bills', {
         method: 'POST',
@@ -635,18 +962,23 @@ export default function BillingPage() {
       });
       if (!res.ok) throw new Error('Failed to save cart');
       const saved = await res.json();
+
+      // Update local state and cache to keep them in sync
+      let newHeldBills;
       if (currentHeldBillId && isLoadedCart) {
-        // Update existing loaded cart
-        setHeldBills((prev) => prev.map((b) => (b.id === currentHeldBillId ? saved : b)));
+        newHeldBills = heldBills.map((b) => (b.id === currentHeldBillId ? saved : b));
       } else {
-        // Create new cart - don't set currentHeldBillId so next save creates another new cart
-        setHeldBills((prev) => [saved, ...prev]);
-        setCurrentHeldBillId(null); // Clear so next save creates a new cart
-        setIsLoadedCart(false); // Mark as not a loaded cart
+        newHeldBills = [saved, ...heldBills];
+        setCurrentHeldBillId(null);
+        setIsLoadedCart(false);
       }
+      setHeldBills(newHeldBills);
+      localStorage.setItem('cached_held_bills', JSON.stringify(newHeldBills));
+
       showSuccess('Cart saved successfully');
       setShowCartNamePrompt(false);
       setCartName('');
+      startNewOrder();
     } catch (e: any) {
       showError(e.message || 'Save cart failed');
     } finally {
@@ -665,9 +997,32 @@ export default function BillingPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Billing</h1>
-        <p className="mt-2 text-gray-600">Add items, apply discounts/coupons, and checkout.</p>
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-2xl font-semibold">Billing</h1>
+          <p className="mt-2 text-gray-600">Add items, apply discounts/coupons, and checkout.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {offlineOrderCount > 0 && (
+            <div className="flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-1 rounded text-sm">
+              <span className="font-semibold">{offlineOrderCount} offline orders</span>
+              {isOnline && (
+                <button
+                  onClick={syncOfflineOrders}
+                  disabled={isSyncing}
+                  className="ml-2 flex items-center gap-1 bg-amber-200 hover:bg-amber-300 px-2 py-0.5 rounded text-xs transition-colors"
+                >
+                  <RefreshCcw size={12} className={isSyncing ? 'animate-spin' : ''} />
+                  {isSyncing ? 'Syncing...' : 'Sync Now'}
+                </button>
+              )}
+            </div>
+          )}
+          <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${isOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}
+            <span className="font-semibold">{isOnline ? 'Online' : 'Offline'}</span>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -736,6 +1091,22 @@ export default function BillingPage() {
         </div>
 
         <div className="p-4 border rounded bg-white space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+            <input
+              type="text"
+              placeholder="Customer Name (Optional)"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              className="border rounded px-2 py-1 text-sm"
+            />
+            <input
+              type="text"
+              placeholder="Customer Phone (Optional)"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+              className="border rounded px-2 py-1 text-sm"
+            />
+          </div>
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Cart</h2>
             <div className="flex gap-2">

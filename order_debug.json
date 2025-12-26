@@ -1,0 +1,24 @@
+{
+  "id": "cmjn0m2i9002nppb6ou60kuvt",
+  "orderId": "20251226-K9QX2",
+  "type": "EXCHANGE",
+  "total": "4500",
+  "items": [
+    {
+      "returnedQuantity": 0,
+      "productId": "cmjl56usb000i6jmfly3gfn52",
+      "quantity": 1
+    },
+    {
+      "returnedQuantity": 0,
+      "productId": "cmjl52omw00076jmf3ag0rd9g",
+      "quantity": 1
+    },
+    {
+      "returnedQuantity": 1,
+      "productId": "cmjl55u4r000d6jmf6wr9057n",
+      "quantity": 1
+    }
+  ],
+  "refunds": []
+}

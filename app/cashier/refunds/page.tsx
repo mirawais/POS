@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 
 type SaleItem = {
   id: string;
@@ -32,6 +33,30 @@ export default function CashierRefundsPage() {
   const [orderIdFilter, setOrderIdFilter] = useState('');
   const [refundItems, setRefundItems] = useState<Record<string, number>>({});
   const [refundReason, setRefundReason] = useState('');
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    const handleStatusChange = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleStatusChange);
+    window.addEventListener('offline', handleStatusChange);
+    return () => {
+      window.removeEventListener('online', handleStatusChange);
+      window.removeEventListener('offline', handleStatusChange);
+    };
+  }, []);
+
+  if (!isOnline) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 bg-white rounded border h-64 text-center">
+        <WifiOff size={48} className="text-gray-400 mb-4" />
+        <h2 className="text-xl font-semibold text-gray-700">Feature Unavailable Offline</h2>
+        <p className="text-gray-500 mt-2 max-w-sm">
+          Refunds require an active internet connection to validate sales data and prevent errors.
+        </p>
+      </div>
+    );
+  }
 
   useEffect(() => {
     loadSales();
@@ -133,9 +158,8 @@ export default function CashierRefundsPage() {
 
       {message && (
         <div
-          className={`p-3 rounded ${
-            message.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-          }`}
+          className={`p-3 rounded ${message.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}
         >
           {message}
         </div>

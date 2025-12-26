@@ -218,6 +218,8 @@ export async function POST(req: Request) {
           tax: totals.taxAmount as any,
           total: totals.total as any,
           paymentMethod: paymentMethod,
+          customerName: body.customerName || null,
+          customerPhone: body.customerPhone || null,
         },
       });
 

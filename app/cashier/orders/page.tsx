@@ -48,10 +48,75 @@ export default function CashierOrdersPage() {
       setLoading(true);
       const params = new URLSearchParams();
       if (orderIdFilter) params.append('orderId', orderIdFilter);
-      const res = await fetch(`/api/sales?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to load sales');
-      const data = await res.json();
-      setSales(data);
+
+      let data: Sale[] = [];
+      try {
+        const res = await fetch(`/api/sales?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to load sales');
+        data = await res.json();
+        if (!orderIdFilter) localStorage.setItem('cached_sales', JSON.stringify(data.slice(0, 50))); // Cache recent 50
+      } catch (e: any) {
+        // Fallback to cache
+        if (!orderIdFilter) {
+          const cached = localStorage.getItem('cached_sales');
+          if (cached) data = JSON.parse(cached);
+        }
+        if (navigator.onLine) console.error(e); // Only log real errors if online
+      }
+
+      // Merge Offline Orders
+      const offlineOrdersRaw = JSON.parse(localStorage.getItem('offline_orders') || '[]');
+      const offlineOrders = offlineOrdersRaw.map((o: any) => {
+        // Transform offline payload to match Sale type approximately for display
+        const payload = o.payload;
+        let sub = 0;
+        const items = payload.items.map((i: any) => {
+          // We need product details. Ideally these are in payload, but payload has ID. 
+          // We rely on the fact that offline creation had access to product data. 
+          // BUT payload only has IDs. We might need to fetch product info from cache to display names?
+          // Actually, display might fail if we don't have names. 
+          // The billing page payload only stores IDs. 
+          // FIX: We need to update billing page to store Names in payload OR we fetch names here.
+          // For now, let's look up in cached products if available.
+          const cachedProds = JSON.parse(localStorage.getItem('cached_products') || '[]');
+          const prod = cachedProds.find((p: any) => p.id === i.productId) || { name: 'Unknown Product', sku: 'N/A' };
+          const variant = prod.variants?.find((v: any) => v.id === i.variantId) || null;
+          const price = variant ? variant.price : prod.price;
+
+          const itemTotal = price * i.quantity;
+          sub += itemTotal;
+
+          return {
+            id: `off-item-${i.productId}`,
+            product: { id: i.productId, name: prod.name, sku: prod.sku },
+            variant: variant ? { id: variant.id, name: variant.name, sku: variant.sku } : null,
+            quantity: i.quantity,
+            returnedQuantity: 0,
+            price: price,
+            discount: 0, // Simplified for offline view
+            tax: 0,
+            total: itemTotal
+          };
+        });
+
+        return {
+          id: o.id,
+          orderId: o.id, // e.g. OFF-173...
+          createdAt: new Date(o.timestamp).toISOString(),
+          cashier: { name: 'You (Offline)', email: '' },
+          items: items,
+          subtotal: sub,
+          discount: 0, // Simplified
+          tax: 0,
+          total: sub, // Simplified
+          type: 'OFFLINE_PENDING', // Custom type for UI
+          paymentMethod: payload.paymentMethod
+        } as Sale;
+      });
+
+      // Combine: Offline first, then Online
+      setSales([...offlineOrders, ...data]);
+
     } catch (err: any) {
       setError(err.message || 'Failed to load sales');
     } finally {
@@ -181,7 +246,17 @@ export default function CashierOrdersPage() {
                 <div>
                   <div className="font-semibold flex items-center">
                     Order: {sale.orderId}
-                    {(sale.refunds && sale.refunds.length > 0 || sale.items?.some(i => i.returnedQuantity > 0)) && (
+                    {sale.type === 'OFFLINE_PENDING' && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-amber-100 text-amber-800 rounded font-medium border border-amber-200">
+                        Pending Sync
+                      </span>
+                    )}
+                    {sale.type === 'EXCHANGE' && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded font-medium border border-blue-200">
+                        Exchange
+                      </span>
+                    )}
+                    {sale.type !== 'EXCHANGE' && sale.type !== 'OFFLINE_PENDING' && (sale.refunds && sale.refunds.length > 0 || sale.items?.some(i => i.returnedQuantity > 0)) && (
                       <span className="ml-2 text-xs px-2 py-1 bg-red-100 text-red-700 rounded font-medium border border-red-200">
                         Refunded
                       </span>

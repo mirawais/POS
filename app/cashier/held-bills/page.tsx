@@ -35,8 +35,16 @@ export default function HeldBillsPage() {
       if (!res.ok) throw new Error('Failed to load held bills');
       const data = await res.json();
       setHeldBills(data);
+      localStorage.setItem('cached_held_bills', JSON.stringify(data));
     } catch (err: any) {
-      showError(err.message || 'Failed to load held bills');
+      // Try cache if offline or failed
+      const cached = localStorage.getItem('cached_held_bills');
+      if (cached) {
+        setHeldBills(JSON.parse(cached));
+        if (navigator.onLine) showError('Using cached held bills');
+      } else {
+        showError(err.message || 'Failed to load held bills');
+      }
     } finally {
       setLoading(false);
     }
@@ -80,10 +88,10 @@ export default function HeldBillsPage() {
     try {
       // Fetch invoice settings
       const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
-      
+
       // Fetch taxes for calculation
       const taxes = await fetch('/api/taxes').then((r) => r.json()).catch(() => ([]));
-      
+
       // Calculate totals from cart data (products should be included in the cart items)
       const cart = bill.data?.cart || [];
       let subtotal = 0;
@@ -95,10 +103,10 @@ export default function HeldBillsPage() {
         const quantity = item.quantity || 1;
         const itemTotal = Number(price) * quantity;
         subtotal += itemTotal;
-        
+
         const productName = product?.name || 'Unknown';
         const variantName = variant?.name || null;
-        
+
         return `<tr>
           <td>${productName}${variantName ? ` (${variantName})` : ''}</td>
           <td>${quantity}</td>
@@ -180,8 +188,8 @@ export default function HeldBillsPage() {
               Cart Name: ${bill.data?.label || 'Unnamed Cart'}<br/>
               Saved Date: ${savedDate.toLocaleString()}<br/>
               ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
-                ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
-                : ''}
+          ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+          : ''}
             </div>
             <table>
               <thead>
@@ -217,12 +225,12 @@ export default function HeldBillsPage() {
         showError('Please allow pop-ups to print');
         return;
       }
-      
+
       win.document.write(html);
       win.document.close();
       win.focus();
       win.print();
-      
+
       // Close window after print
       setTimeout(() => {
         try {
@@ -238,7 +246,7 @@ export default function HeldBillsPage() {
 
   // Cache for validated coupons
   const [validatedCoupons, setValidatedCoupons] = useState<Map<string, any>>(new Map());
-  
+
   const getValidatedCoupon = async (couponCode: string) => {
     if (validatedCoupons.has(couponCode)) {
       return validatedCoupons.get(couponCode);

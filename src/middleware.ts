@@ -27,13 +27,20 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 2. Client Admin area (Super Admin can also access if we want, or we keep them separate. 
-  // Requirement says "Super Admin can access... all data". 
-  // Usually Super Admin uses their own dashboard. Let's block them from /admin to avoid confusion unless impersonating.)
-  if (req.nextUrl.pathname.startsWith('/admin') && role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
-    const url = req.nextUrl.clone();
-    url.pathname = '/cashier/billing';
-    return NextResponse.redirect(url);
+  // 2. Client Admin area - Block SUPER_ADMIN from accessing /admin routes
+  // Super Admin must use their own dashboard to avoid confusion
+  if (req.nextUrl.pathname.startsWith('/admin')) {
+    if (role === 'SUPER_ADMIN') {
+      // Redirect SUPER_ADMIN to their own dashboard
+      const url = req.nextUrl.clone();
+      url.pathname = '/super-admin';
+      return NextResponse.redirect(url);
+    }
+    if (role !== 'ADMIN') {
+      const url = req.nextUrl.clone();
+      url.pathname = '/cashier/billing';
+      return NextResponse.redirect(url);
+    }
   }
 
   // 3. Cashier area (Admins and Super Admins can access)

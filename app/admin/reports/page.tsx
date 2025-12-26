@@ -13,6 +13,14 @@ export default function ReportsPage() {
   const [expandedSale, setExpandedSale] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<string>('last7days');
   const [summary, setSummary] = useState<{ totalSales: number; totalTax: number; totalDiscount: number; cashSales: number; cardSales: number; totalRefundAmount: number } | null>(null);
+  const [cashiers, setCashiers] = useState<any[]>([]);
+  const [selectedCashier, setSelectedCashier] = useState<string>('');
+  const [viewMode, setViewMode] = useState<'sales' | 'products' | 'customers'>('sales');
+
+  const handleViewModeChange = (mode: 'sales' | 'products' | 'customers') => {
+    setViewMode(mode);
+    setOrderIdFilter('');
+  };
 
   const applyDateFilter = (filter: string) => {
     const today = new Date();
@@ -60,7 +68,8 @@ export default function ReportsPage() {
       const params = new URLSearchParams();
       if (startDate) params.append('startDate', startDate);
       if (endDate) params.append('endDate', endDate);
-      if (orderIdFilter) params.append('orderId', orderIdFilter);
+      if (orderIdFilter && viewMode === 'sales') params.append('orderId', orderIdFilter);
+      if (selectedCashier) params.append('cashierId', selectedCashier);
 
       const response = await fetch(`/api/sales?${params.toString()}`);
       if (!response.ok) {
@@ -99,7 +108,18 @@ export default function ReportsPage() {
   useEffect(() => {
     fetchSales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, orderIdFilter]);
+  }, [startDate, endDate, orderIdFilter, selectedCashier, viewMode]);
+
+  useEffect(() => {
+    fetch('/api/users')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setCashiers(data.filter((u: any) => u.role === 'CASHIER'));
+        }
+      })
+      .catch(err => console.error('Failed to fetch users', err));
+  }, []);
 
   const printOrder = async (sale: any) => {
     const setting = await fetch('/api/invoice-settings')
@@ -219,7 +239,7 @@ export default function ReportsPage() {
   defaultStartDate.setDate(defaultStartDate.getDate() - 30);
   const defaultStartDateStr = defaultStartDate.toISOString().split('T')[0];
 
-  const [viewMode, setViewMode] = useState<'sales' | 'products'>('sales');
+
 
   const productStats = useState(() => {
     // Calculate product stats whenever sales change
@@ -296,16 +316,23 @@ export default function ReportsPage() {
           </div>
           <div className="flex bg-white border rounded p-1">
             <button
-              onClick={() => setViewMode('sales')}
+              onClick={() => handleViewModeChange('sales')}
               className={`px-4 py-2 rounded text-sm font-medium ${viewMode === 'sales' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               Sales List
             </button>
             <button
-              onClick={() => setViewMode('products')}
+              onClick={() => handleViewModeChange('products')}
               className={`px-4 py-2 rounded text-sm font-medium ${viewMode === 'products' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               Product Report
+            </button>
+
+            <button
+              onClick={() => handleViewModeChange('customers')}
+              className={`px-4 py-2 rounded text-sm font-medium ${viewMode === 'customers' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              Customers
             </button>
           </div>
         </div>
@@ -332,6 +359,21 @@ export default function ReportsPage() {
                 <option value="last7days">Last 7 Days</option>
                 <option value="lastmonth">Last Month</option>
                 <option value="custom">Custom Date Range</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm text-gray-700 mb-1">Cashier</label>
+              <select
+                value={selectedCashier}
+                onChange={(e) => setSelectedCashier(e.target.value)}
+                className="w-full border rounded px-3 py-2 text-sm"
+              >
+                <option value="">All Cashiers</option>
+                {cashiers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name || c.email}
+                  </option>
+                ))}
               </select>
             </div>
             {dateFilter === 'custom' && (
@@ -402,12 +444,14 @@ export default function ReportsPage() {
         <div className="p-4 border rounded bg-white space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-gray-700 mb-1">Order ID</label>
+              <label className="block text-sm text-gray-700 mb-1">
+                {viewMode === 'customers' ? 'Search Customer (Name or Phone)' : viewMode === 'products' ? 'Search Product (Name or SKU)' : 'Search Order ID'}
+              </label>
               <input
                 type="text"
                 value={orderIdFilter}
                 onChange={(e) => setOrderIdFilter(e.target.value)}
-                placeholder="Search order ID..."
+                placeholder={viewMode === 'customers' ? "Search Customer Name/Phone..." : viewMode === 'products' ? "Search Product Name/SKU..." : "Search order ID..."}
                 className="w-full border rounded px-3 py-2 text-sm"
               />
             </div>
@@ -471,7 +515,15 @@ export default function ReportsPage() {
                       }
                     });
                   });
-                  const list = Array.from(stats.values()).sort((a, b) => b.total - a.total);
+                  let list = Array.from(stats.values()).sort((a, b) => b.total - a.total);
+
+                  if (orderIdFilter) {
+                    const searchLower = orderIdFilter.toLowerCase();
+                    list = list.filter(p =>
+                      (p.name && p.name.toLowerCase().includes(searchLower)) ||
+                      (p.sku && p.sku.toLowerCase().includes(searchLower))
+                    );
+                  }
 
                   return list.map((p: any) => (
                     <tr key={p.sku + p.variantName} className="hover:bg-gray-50">
@@ -509,7 +561,8 @@ export default function ReportsPage() {
                             {sale.type}
                           </span>
                         )}
-                        {(sale.refunds?.length > 0 || sale.items?.some((i: any) => i.returnedQuantity > 0)) && (
+                        {/* Only show Refunded if it's a SALE (not Exchange/Refund type logic) */}
+                        {(!sale.type || sale.type === 'SALE') && (sale.refunds?.length > 0 || sale.items?.some((i: any) => i.returnedQuantity > 0)) && (
                           <span className="ml-2 text-xs px-2 py-1 bg-red-100 text-red-700 rounded font-medium border border-red-200">
                             Refunded
                           </span>
@@ -601,6 +654,77 @@ export default function ReportsPage() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {!loading && !error && sales.length > 0 && viewMode === 'customers' && (
+          <div className="border rounded bg-white overflow-hidden">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="px-4 py-3 font-semibold text-gray-900">Customer Name</th>
+                  <th className="px-4 py-3 font-semibold text-gray-900">Phone</th>
+                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Orders</th>
+                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Total Spent</th>
+                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Last Visit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {(() => {
+                  const customers = new Map<string, any>();
+                  const searchLower = orderIdFilter.toLowerCase();
+
+                  sales.forEach((sale) => {
+                    if (sale.customerName || sale.customerPhone) {
+                      // Client-side filtering for customer search
+                      if (orderIdFilter) {
+                        const matchName = sale.customerName && sale.customerName.toLowerCase().includes(searchLower);
+                        const matchPhone = sale.customerPhone && sale.customerPhone.includes(orderIdFilter);
+                        if (!matchName && !matchPhone) return;
+                      }
+
+                      const key = (sale.customerName || '') + (sale.customerPhone || '');
+                      // Only group if we have some data
+                      if (!key) return;
+
+                      const existing = customers.get(key);
+                      if (existing) {
+                        existing.orders += 1;
+                        existing.spent += Number(sale.total);
+                        if (new Date(sale.createdAt) > new Date(existing.lastVisit)) {
+                          existing.lastVisit = sale.createdAt;
+                        }
+                        customers.set(key, existing);
+                      } else {
+                        customers.set(key, {
+                          name: sale.customerName || 'N/A',
+                          phone: sale.customerPhone || 'N/A',
+                          orders: 1,
+                          spent: Number(sale.total),
+                          lastVisit: sale.createdAt
+                        });
+                      }
+                    }
+                  });
+
+                  if (customers.size === 0) {
+                    return <tr><td colSpan={5} className="px-4 py-3 text-gray-500 text-center">No customer data found in selected sales.</td></tr>;
+                  }
+
+                  return Array.from(customers.values())
+                    .sort((a, b) => b.spent - a.spent)
+                    .map((c, idx) => (
+                      <tr key={idx} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium">{c.name}</td>
+                        <td className="px-4 py-3 text-gray-600">{c.phone}</td>
+                        <td className="px-4 py-3 text-right">{c.orders}</td>
+                        <td className="px-4 py-3 text-right text-blue-700">Rs. {c.spent.toFixed(2)}</td>
+                        <td className="px-4 py-3 text-right text-gray-500">{new Date(c.lastVisit).toLocaleString()}</td>
+                      </tr>
+                    ));
+                })()}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { WifiOff } from 'lucide-react';
 
 type SaleItem = {
   id: string;
@@ -52,6 +53,37 @@ export default function CashierExchangesPage() {
   >([]);
   const [newTotal, setNewTotal] = useState(0);
 
+  // Printing State
+  const [invoiceData, setInvoiceData] = useState<any | null>(null);
+  const [fbrLoading, setFbrLoading] = useState(false);
+  const [fbrInvoiceId, setFbrInvoiceId] = useState<string | null>(null);
+  const { showError, showSuccess } = { showError: setMessage, showSuccess: setMessage }; // Simple adapter for now, or import useToast if available
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    setIsOnline(navigator.onLine);
+    const handleStatusChange = () => setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleStatusChange);
+    window.addEventListener('offline', handleStatusChange);
+    return () => {
+      window.removeEventListener('online', handleStatusChange);
+      window.removeEventListener('offline', handleStatusChange);
+    };
+  }, []);
+
+  if (!isOnline) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 bg-white rounded border h-64 text-center">
+        <WifiOff size={48} className="text-gray-400 mb-4" />
+        <h2 className="text-xl font-semibold text-gray-700">Feature Unavailable Offline</h2>
+        <p className="text-gray-500 mt-2 max-w-sm">
+          Return and Exchange processing requires an active internet connection to validate sales data and prevent errors.
+        </p>
+      </div>
+    );
+  }
+
+
   useEffect(() => {
     loadSales();
     loadProducts();
@@ -96,8 +128,10 @@ export default function CashierExchangesPage() {
       if (returnQty > 0) {
         const item = selectedSale.items.find((i) => i.id === saleItemId);
         if (item) {
-          // Use the item's total (which includes tax) divided by quantity to get unit total
-          const unitTotal = Number(item.total) / item.quantity;
+          // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
+          // Based on debug data, item.total is Gross (before discount), so we must subtract discount.
+          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+          const unitTotal = lineNet / item.quantity;
           returnValue += unitTotal * returnQty;
         }
       }
@@ -159,6 +193,73 @@ export default function CashierExchangesPage() {
     setReplacementItems((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Modified printInvoice to use selectedSale if available, or invoiceData
+  const printInvoice = async () => {
+    const saleToPrint = selectedSale || invoiceData?.sale;
+    const itemsToPrint = selectedSale?.items || invoiceData?.items || invoiceData?.sale?.items;
+
+    if (!saleToPrint) {
+      showError('No data to print');
+      return;
+    }
+
+    // Fetch settings if not already cached/fetched (simplified)
+    const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
+
+    const win = window.open('', `PRINT_${Date.now()}`, 'height=650,width=400');
+    if (!win) return;
+
+    const logo = setting?.logoUrl ? `<img src="${setting.logoUrl}" style="max-width:150px;" />` : '';
+    const header = setting?.headerText ? `<div>${setting.headerText}</div>` : '';
+    const footer = setting?.footerText ? `<div>${setting.footerText}</div>` : '';
+
+    const itemsHtml =
+      itemsToPrint
+        ?.map(
+          (i: any) => {
+            const itemTotal = Number(i.total);
+            return `<tr><td>${i.product?.name || 'Unknown'}${i.variant ? ` (${i.variant.name})` : ''}</td><td>${i.quantity}</td><td>Rs. ${Number(i.price).toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
+          }
+        )
+        .join('') || '';
+
+    const html = `
+      <html>
+        <head>
+          <title>Invoice ${saleToPrint.orderId || 'N/A'}</title>
+        </head>
+        <body>
+          <div style="text-align:center;">
+            ${logo}
+            ${header}
+          </div>
+          <div style="margin-top:8px;font-size:12px;">
+            Order ID: ${saleToPrint.orderId || 'N/A'}<br/>
+            Date: ${new Date(saleToPrint.createdAt).toLocaleString()}<br/>
+            ${setting?.showCashier !== false ? `Cashier: ${saleToPrint.cashier?.name || saleToPrint.cashier?.email || 'Unknown'}<br/>` : ''}
+            Type: ${saleToPrint.type || 'SALE'}<br/>
+          </div>
+          <table style="width:100%;font-size:12px;margin-top:8px;">
+            <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+          <div style="margin-top:8px;font-size:12px;">
+             <strong>Total: Rs. ${Number(saleToPrint.total).toFixed(2)}</strong>
+          </div>
+          <div style="text-align:center;margin-top:12px;font-size:12px;">${footer}</div>
+        </body>
+      </html>
+    `;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+    setTimeout(() => {
+      try { win.close(); } catch (e) { }
+    }, 1000);
+  };
+
+
   const handleSubmit = async () => {
     if (!selectedSale) return;
 
@@ -175,9 +276,12 @@ export default function CashierExchangesPage() {
     let totalReturnedValue = 0;
     for (const [saleItemId, returnQty] of Object.entries(returnItems)) {
       if (returnQty > 0) {
-        const item = selectedSale.items.find((i) => i.id === saleItemId);
+        const item = selectedSale.items.find((i: any) => i.id === saleItemId);
         if (item) {
-          const unitTotal = Number(item.total) / item.quantity;
+          // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
+          // Use 'any' cast to avoid TS errors if types are not fully defined in frontend
+          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+          const unitTotal = lineNet / item.quantity;
           totalReturnedValue += unitTotal * returnQty;
         }
       }
@@ -187,7 +291,7 @@ export default function CashierExchangesPage() {
     // This ensures replacement items cover the value of returned items
     if (totalReturnedValue > 0 && newTotal < totalReturnedValue) {
       setMessage(
-        `Exchange not allowed: Replacement total (Rs. ${newTotal.toFixed(2)}) must be equal to or greater than returned value (Rs. ${totalReturnedValue.toFixed(2)}). Please add more items.`
+        `Exchange not allowed: Replacement total (Rs. ${newTotal.toFixed(2)}) must be equal to or greater than actual paid value of returned items (Rs. ${totalReturnedValue.toFixed(2)}). Please add more items.`
       );
       return;
     }
@@ -221,12 +325,18 @@ export default function CashierExchangesPage() {
         throw new Error(err.error || 'Failed to process exchange');
       }
 
-      setMessage('Exchange processed successfully. New order created.');
-      setSelectedSale(null);
+      const data = await res.json();
+      const newSale = data.newSale;
+
+      setMessage(`Exchange processed successfully. New Order ID: ${newSale.orderId}`);
+
+      // Select the new sale to show details and allow printing
       setReturnItems({});
       setReplacementItems([]);
       setNewTotal(0);
-      await loadSales();
+      setSelectedSale(newSale); // Switch view to new sale
+
+      await loadSales(); // Refresh list
     } catch (err: any) {
       setMessage(err.message || 'Failed to process exchange');
     } finally {
@@ -256,9 +366,8 @@ export default function CashierExchangesPage() {
 
       {message && (
         <div
-          className={`p-3 rounded ${
-            message.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
-          }`}
+          className={`p-3 rounded ${message.includes('success') ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+            }`}
         >
           {message}
         </div>
@@ -307,17 +416,25 @@ export default function CashierExchangesPage() {
                   Original Total: Rs. {Number(selectedSale.total).toFixed(2)}
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  setSelectedSale(null);
-                  setReturnItems({});
-                  setReplacementItems([]);
-                  setNewTotal(0);
-                }}
-                className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
-              >
-                Back
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={printInvoice}
+                  className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+                >
+                  Print
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedSale(null);
+                    setReturnItems({});
+                    setReplacementItems([]);
+                    setNewTotal(0);
+                  }}
+                  className="px-3 py-1 border rounded text-sm hover:bg-gray-50"
+                >
+                  Back
+                </button>
+              </div>
             </div>
 
             <div className="space-y-3 mb-6">
@@ -359,7 +476,15 @@ export default function CashierExchangesPage() {
                         />
                         {returnQty > 0 && (
                           <span className="text-sm text-red-600">
-                            Return Value: Rs. {(Number(item.price) * returnQty).toFixed(2)}
+                            Return Value: Rs. {
+                              (() => {
+                                // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
+                                const _item = item as any;
+                                const lineNet = Number(_item.total) - Number(_item.discount || 0) + Number(_item.tax || 0);
+                                const unitTotal = lineNet / _item.quantity;
+                                return (unitTotal * returnQty).toFixed(2);
+                              })()
+                            }
                           </span>
                         )}
                       </div>
@@ -389,7 +514,10 @@ export default function CashierExchangesPage() {
                       <label className="block text-xs text-gray-700 mb-1">Product</label>
                       <select
                         value={repl.productId}
-                        onChange={(e) => updateReplacementItem(idx, 'productId', e.target.value)}
+                        onChange={(e) => {
+                          updateReplacementItem(idx, 'productId', e.target.value);
+                          updateReplacementItem(idx, 'variantId', null); // Reset variant on product change
+                        }}
                         className="w-full border rounded px-2 py-1 text-sm"
                       >
                         <option value="">Select product...</option>
@@ -399,6 +527,29 @@ export default function CashierExchangesPage() {
                           </option>
                         ))}
                       </select>
+                      {repl.productId && (() => {
+                        const prod = products.find(p => p.id === repl.productId);
+                        if (prod && prod.variants && prod.variants.length > 0) {
+                          return (
+                            <div className="mt-2">
+                              <label className="block text-xs text-gray-700 mb-1">Variant</label>
+                              <select
+                                value={repl.variantId || ''}
+                                onChange={(e) => updateReplacementItem(idx, 'variantId', e.target.value)}
+                                className="w-full border rounded px-2 py-1 text-sm bg-gray-50"
+                              >
+                                <option value="">Select variant...</option>
+                                {prod.variants.map((v) => (
+                                  <option key={v.id} value={v.id}>
+                                    {v.name} {v.attributes ? `(${Object.entries(v.attributes).map(([k, val]) => `${k}: ${val}`).join(', ')})` : ''} - Rs. {Number(v.price).toFixed(2)}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                     <div>
                       <label className="block text-xs text-gray-700 mb-1">Quantity</label>
@@ -464,9 +615,11 @@ export default function CashierExchangesPage() {
                     let totalReturned = 0;
                     for (const [saleItemId, returnQty] of Object.entries(returnItems)) {
                       if (returnQty > 0) {
-                        const item = selectedSale.items.find((i) => i.id === saleItemId);
+                        const item = selectedSale.items.find((i: any) => i.id === saleItemId);
                         if (item) {
-                          const unitTotal = Number(item.total) / item.quantity;
+                          // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
+                          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+                          const unitTotal = lineNet / item.quantity;
                           totalReturned += unitTotal * returnQty;
                         }
                       }
@@ -478,25 +631,24 @@ export default function CashierExchangesPage() {
               <div className="flex justify-between items-center">
                 <span className="font-medium">Replacement Total:</span>
                 <span
-                  className={`font-semibold text-lg ${
-                    (() => {
-                      let totalReturned = 0;
-                      for (const [saleItemId, returnQty] of Object.entries(returnItems)) {
-                        if (returnQty > 0) {
-                          const item = selectedSale.items.find((i) => i.id === saleItemId);
-                          if (item) {
-                            const unitTotal = Number(item.total) / item.quantity;
-                            totalReturned += unitTotal * returnQty;
-                          }
+                  className={`font-semibold text-lg ${(() => {
+                    let totalReturned = 0;
+                    for (const [saleItemId, returnQty] of Object.entries(returnItems)) {
+                      if (returnQty > 0) {
+                        const item = selectedSale.items.find((i) => i.id === saleItemId);
+                        if (item) {
+                          const unitTotal = Number(item.total) / item.quantity;
+                          totalReturned += unitTotal * returnQty;
                         }
                       }
-                      return totalReturned === 0
-                        ? newTotal >= Number(selectedSale.total)
-                        : newTotal >= totalReturned;
-                    })()
-                      ? 'text-green-700'
-                      : 'text-red-700'
-                  }`}
+                    }
+                    return totalReturned === 0
+                      ? newTotal >= Number(selectedSale.total)
+                      : newTotal >= totalReturned;
+                  })()
+                    ? 'text-green-700'
+                    : 'text-red-700'
+                    }`}
                 >
                   Rs. {newTotal.toFixed(2)}
                 </span>

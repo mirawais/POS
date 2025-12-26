@@ -5,6 +5,7 @@ import { ToastProvider } from '@/components/notifications/ToastContainer';
 export const metadata: Metadata = {
   title: 'Amanat POS',
   description: 'Multi-tenant Point of Sale',
+  manifest: '/manifest.json', // Link manifest
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

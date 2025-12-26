@@ -150,15 +150,15 @@ export async function POST(
         const taxPercent = originalSale.taxPercent ? Number(originalSale.taxPercent) : null;
         const tax = taxPercent
           ? await tx.taxSetting
-              .findFirst({
-                where: {
-                  clientId,
-                  percent: taxPercent as any,
-                  isActive: true,
-                },
-              })
-              .catch(() => null) ||
-            (await tx.taxSetting.findFirst({ where: { clientId, isDefault: true } }))
+            .findFirst({
+              where: {
+                clientId,
+                percent: taxPercent as any,
+                isActive: true,
+              },
+            })
+            .catch(() => null) ||
+          (await tx.taxSetting.findFirst({ where: { clientId, isDefault: true } }))
           : null;
 
         const replacementTotals = calculateTotals({
@@ -173,7 +173,9 @@ export async function POST(
         for (const ret of returnItems as ReturnItem[]) {
           const saleItem = originalSale.items.find((item: any) => item.id === ret.saleItemId);
           if (saleItem && ret.returnQuantity > 0) {
-            const unitTotal = Number(saleItem.total) / saleItem.quantity;
+            // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
+            const lineNet = Number(saleItem.total) - Number(saleItem.discount || 0) + Number(saleItem.tax || 0);
+            const unitTotal = lineNet / saleItem.quantity;
             totalReturnedValue += unitTotal * ret.returnQuantity;
           }
         }
@@ -211,6 +213,8 @@ export async function POST(
             tax: replacementTotals.taxAmount as any,
             total: replacementTotals.total as any,
             type: 'EXCHANGE', // Mark as exchange
+            paymentMethod: 'CASH', // Exchange default payment method
+            subtotal: replacementTotals.subtotal as any,
           },
         });
 
@@ -253,6 +257,14 @@ export async function POST(
               });
             }
           }
+        }
+
+        // Update Original Sale to be marked as EXCHANGE if not already
+        if (originalSale.type !== 'EXCHANGE') {
+          await tx.sale.update({
+            where: { id: originalSale.id },
+            data: { type: 'EXCHANGE' } // Mark original status as having been exchanged
+          });
         }
 
         return {

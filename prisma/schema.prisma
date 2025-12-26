@@ -198,6 +198,8 @@ model Sale {
   paymentMethod String? @default("CASH") @map("payment_method") // CASH, CARD
   fbrInvoiceId String?  @map("fbr_invoice_id") // FBR Invoice ID / USIN
   createdAt   DateTime  @default(now()) @map("created_at")
+  customerName String?  @map("customer_name")
+  customerPhone String? @map("customer_phone")
   items       SaleItem[]
   refunds     Refund[]
 }
