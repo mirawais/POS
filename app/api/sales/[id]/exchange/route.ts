@@ -214,7 +214,6 @@ export async function POST(
             total: replacementTotals.total as any,
             type: 'EXCHANGE', // Mark as exchange
             paymentMethod: 'CASH', // Exchange default payment method
-            subtotal: replacementTotals.subtotal as any,
           },
         });
 
