@@ -901,59 +901,64 @@ export default function BillingPage() {
       showError('Nothing to save');
       return;
     }
-    setLoading(true);
-    try {
-      // If updating existing loaded cart, preserve existing label unless new name provided
-      const existingLabel = (currentHeldBillId && isLoadedCart) ? heldBills.find(b => b.id === currentHeldBillId)?.data?.label : null;
-      const payload = {
-        cart,
-        cartDiscountType,
-        cartDiscountValue,
-        couponCode: validatedCoupon?.code || couponCode || null,
-        taxId,
-        label: name || cartName || existingLabel || `Cart ${new Date().toLocaleString()}`,
+
+    // Prepare payload first
+    const existingLabel = (currentHeldBillId && isLoadedCart) ? heldBills.find(b => b.id === currentHeldBillId)?.data?.label : null;
+    const payload = {
+      cart,
+      cartDiscountType,
+      cartDiscountValue,
+      couponCode: validatedCoupon?.code || couponCode || null,
+      taxId,
+      label: name || cartName || existingLabel || `Cart ${new Date().toLocaleString()}`,
+    };
+
+    // CHECK OFFLINE STATUS FIRST - before any try/catch
+    if (!navigator.onLine) {
+      // Offline Save Logic
+      setLoading(true);
+      const offlineId = (currentHeldBillId && isLoadedCart) ? currentHeldBillId : `OFF-HELD-${Date.now()}`;
+      const offlineBill = {
+        id: offlineId,
+        createdAt: new Date().toISOString(),
+        data: payload,
+        isOffline: true
       };
 
-      if (!navigator.onLine) {
-        // Offline Save Logic
-        const offlineId = (currentHeldBillId && isLoadedCart) ? currentHeldBillId : `OFF-HELD-${Date.now()}`;
-        const offlineBill = {
-          id: offlineId,
-          createdAt: new Date().toISOString(),
-          data: payload,
-          isOffline: true
-        };
+      // 1. Update cached held bills (Display)
+      const cached = JSON.parse(localStorage.getItem('cached_held_bills') || '[]');
+      const updatedCached = (currentHeldBillId && isLoadedCart)
+        ? cached.map((b: any) => b.id === offlineId ? offlineBill : b)
+        : [offlineBill, ...cached];
+      localStorage.setItem('cached_held_bills', JSON.stringify(updatedCached));
+      setHeldBills(updatedCached);
 
-        // 1. Update cached held bills (Display)
-        const cached = JSON.parse(localStorage.getItem('cached_held_bills') || '[]');
-        const updatedCached = (currentHeldBillId && isLoadedCart)
-          ? cached.map((b: any) => b.id === offlineId ? offlineBill : b)
-          : [offlineBill, ...cached];
-        localStorage.setItem('cached_held_bills', JSON.stringify(updatedCached));
-        setHeldBills(updatedCached);
+      // 2. Queue for Sync
+      const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
+      // Remove any previous update for same ID to avoid duplicates in queue
+      const filteredQueue = offlineQueue.filter((q: any) => q.id !== offlineId);
+      filteredQueue.push(offlineBill);
+      localStorage.setItem('offline_held_queue', JSON.stringify(filteredQueue));
 
-        // 2. Queue for Sync
-        const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
-        // Remove any previous update for same ID to avoid duplicates in queue
-        const filteredQueue = offlineQueue.filter((q: any) => q.id !== offlineId);
-        filteredQueue.push(offlineBill);
-        localStorage.setItem('offline_held_queue', JSON.stringify(filteredQueue));
-
-        if (currentHeldBillId && isLoadedCart) {
-          // Updated existing
-        } else {
-          // Created new
-          setCurrentHeldBillId(null);
-          setIsLoadedCart(false);
-        }
-
-        showSuccess('Cart saved OFFLINE.');
-        setShowCartNamePrompt(false);
-        setCartName('');
-        startNewOrder();
-        return;
+      if (currentHeldBillId && isLoadedCart) {
+        // Updated existing
+      } else {
+        // Created new
+        setCurrentHeldBillId(null);
+        setIsLoadedCart(false);
       }
 
+      showSuccess('Cart saved OFFLINE.');
+      setShowCartNamePrompt(false);
+      setCartName('');
+      setLoading(false);
+      startNewOrder();
+      return;
+    }
+
+    // ONLINE: Save to server
+    setLoading(true);
+    try {
       // Only pass id if we're updating a loaded cart, otherwise create new
       const res = await fetch('/api/held-bills', {
         method: 'POST',
