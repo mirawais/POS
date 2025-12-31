@@ -269,9 +269,15 @@ export async function POST(req: Request) {
 
       // Delete held bill if it was checked out
       if (heldBillId) {
-        await tx.heldBill.delete({ where: { id: heldBillId } }).catch(() => {
-          // Ignore if already deleted or not found
-        });
+        // Skip deletion if it's an offline-only ID (starting with OFF-)
+        if (!heldBillId.toString().startsWith('OFF-')) {
+          try {
+            await tx.heldBill.delete({ where: { id: heldBillId } });
+          } catch (e) {
+            console.warn(`Could not delete held bill ${heldBillId}:`, e);
+            // We don't throw here to avoid rolling back the entire sale transaction
+          }
+        }
       }
 
       return saleRecord;
