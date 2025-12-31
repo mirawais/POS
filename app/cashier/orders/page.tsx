@@ -251,7 +251,7 @@ export default function CashierOrdersPage() {
                         Pending Sync
                       </span>
                     )}
-                    {sale.type === 'EXCHANGE' && (
+                    {sale.type === 'EXCHANGE' && sale.items?.some(i => i.returnedQuantity > 0) && (
                       <span className="ml-2 text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded font-medium border border-blue-200">
                         Exchange
                       </span>

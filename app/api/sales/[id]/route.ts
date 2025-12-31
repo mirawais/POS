@@ -18,6 +18,41 @@ type ReplacementItem = {
   discountValue?: number | null;
 };
 
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await auth();
+    const user = (session as any)?.user;
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const clientId = user.clientId as string;
+    const saleId = params.id;
+
+    const sale = await (prisma as any).sale.findUnique({
+      where: { id: saleId },
+      include: {
+        cashier: { select: { id: true, name: true, email: true } },
+        items: {
+          include: {
+            product: { select: { id: true, name: true, sku: true } },
+            variant: { select: { id: true, name: true, sku: true, attributes: true } },
+          },
+        },
+      },
+    });
+
+    if (!sale || sale.clientId !== clientId) {
+      return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
+    }
+
+    return NextResponse.json(sale);
+  } catch (e: any) {
+    console.error('sales GET error', e);
+    return NextResponse.json({ error: e?.message ?? 'Failed to fetch sale' }, { status: 500 });
+  }
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
@@ -131,12 +166,12 @@ export async function PATCH(
         const taxPercent = sale.taxPercent ? Number(sale.taxPercent) : null;
         const tax = taxPercent
           ? await tx.taxSetting.findFirst({
-              where: {
-                clientId,
-                percent: taxPercent as any,
-                isActive: true,
-              },
-            }) || (await tx.taxSetting.findFirst({ where: { clientId, isDefault: true } }))
+            where: {
+              clientId,
+              percent: taxPercent as any,
+              isActive: true,
+            },
+          }) || (await tx.taxSetting.findFirst({ where: { clientId, isDefault: true } }))
           : null;
 
         const replacementTotals = calculateTotals({

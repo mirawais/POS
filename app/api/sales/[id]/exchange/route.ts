@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 type ReturnItem = {
   saleItemId: string;
-  returnQuantity: number;
+  returnQuantity?: number;
+  quantity?: number;
 };
 
 type ReplacementItem = {
@@ -73,10 +74,10 @@ export async function POST(
         const saleItem = originalSale.items.find((item: any) => item.id === ret.saleItemId);
         if (!saleItem) continue;
 
-        const returnQty = Math.min(
-          ret.returnQuantity,
+        const returnQty = Math.max(0, Math.min(
+          Number(ret.returnQuantity || ret.quantity || 0),
           saleItem.quantity - (saleItem.returnedQuantity || 0)
-        );
+        ));
         if (returnQty <= 0) continue;
 
         // Update returned quantity
@@ -172,11 +173,12 @@ export async function POST(
         let totalReturnedValue = 0;
         for (const ret of returnItems as ReturnItem[]) {
           const saleItem = originalSale.items.find((item: any) => item.id === ret.saleItemId);
-          if (saleItem && ret.returnQuantity > 0) {
+          const currentReturnQty = Number(ret.returnQuantity || ret.quantity || 0);
+          if (saleItem && currentReturnQty > 0) {
             // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
             const lineNet = Number(saleItem.total) - Number(saleItem.discount || 0) + Number(saleItem.tax || 0);
             const unitTotal = lineNet / saleItem.quantity;
-            totalReturnedValue += unitTotal * ret.returnQuantity;
+            totalReturnedValue += unitTotal * currentReturnQty;
           }
         }
 

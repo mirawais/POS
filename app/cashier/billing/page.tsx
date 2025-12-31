@@ -4,6 +4,8 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
 import { Wifi, WifiOff, RefreshCcw } from 'lucide-react';
+import ConfirmationModal from '@/components/ConfirmationModal';
+
 
 type ProductVariant = {
   id: string;
@@ -50,6 +52,8 @@ export default function BillingPage() {
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const { showError, showSuccess, showInfo } = useToast();
+
+  const [newOrderModalOpen, setNewOrderModalOpen] = useState(false);
   const [showHeld, setShowHeld] = useState(false);
   const [invoiceData, setInvoiceData] = useState<any | null>(null);
   const [currentHeldBillId, setCurrentHeldBillId] = useState<string | null>(null);
@@ -92,9 +96,20 @@ export default function BillingPage() {
       // Get current products - if empty, fetch them
       let currentProducts = products;
       if (currentProducts.length === 0) {
-        const productsData = await fetch('/api/products').then((r) => r.json());
-        currentProducts = productsData;
-        setProducts(productsData);
+        try {
+          if (!navigator.onLine) throw new Error('Offline');
+          const productsData = await fetch('/api/products').then((r) => r.json());
+          currentProducts = productsData;
+          setProducts(productsData);
+        } catch (e) {
+          // If fetch fails (offline), try cache
+          const cached = localStorage.getItem('cached_products');
+          if (cached) {
+            const productsData = JSON.parse(cached);
+            currentProducts = productsData;
+            setProducts(productsData);
+          }
+        }
       }
 
       const reconstructedCart: CartLine[] = [];
@@ -103,11 +118,22 @@ export default function BillingPage() {
         // If item already has full product object, use it
         if (item.product && item.product.id) {
           // Verify product still exists in current product list
-          const currentProduct = currentProducts.find((p: Product) => p.id === item.product.id);
+          let currentProduct = currentProducts.find((p: Product) => p.id === item.product.id);
+
+          // Debug: Check if we are offline/using cache and still can't find it
+          if (!currentProduct) {
+            console.warn('Product not found in current list, using saved product data', item.product.name);
+            currentProduct = item.product; // Fallback to saved data
+          }
+
           if (currentProduct) {
             let variant: ProductVariant | undefined;
             if (item.variant && item.variant.id) {
               variant = currentProduct.variants?.find((v: ProductVariant) => v.id === item.variant.id);
+              // Fallback for variant too
+              if (!variant && item.variant) {
+                variant = item.variant;
+              }
             }
 
             reconstructedCart.push({
@@ -139,7 +165,8 @@ export default function BillingPage() {
       }
 
       if (reconstructedCart.length === 0 && savedCart.length > 0) {
-        showError('Some products in the saved cart are no longer available');
+        // If still empty despite fallback, it's a critical error
+        console.error("Failed to reconstruct cart. Saved items:", savedCart.length, "Reconstructed:", reconstructedCart.length);
       }
 
       setCart(reconstructedCart);
@@ -189,11 +216,18 @@ export default function BillingPage() {
   // Handle loading held bill from Held Bills page
   useEffect(() => {
     const loadHeldBillId = sessionStorage.getItem('loadHeldBillId');
+    console.log('DEBUG: loadHeldBillId from session:', loadHeldBillId);
+    console.log('DEBUG: heldBills count:', heldBills.length);
+    console.log('DEBUG: products count:', products.length);
+
     if (loadHeldBillId && heldBills.length > 0 && products.length > 0) {
       sessionStorage.removeItem('loadHeldBillId');
-      const bill = heldBills.find(b => b.id === loadHeldBillId);
+      const bill = heldBills.find(b => b.id.toString() === loadHeldBillId.toString());
+      console.log('DEBUG: Found bill to load:', bill ? 'YES' : 'NO');
       if (bill) {
         loadHeldBill(bill);
+      } else {
+        console.warn('DEBUG: Bill ID not found in heldBills list:', loadHeldBillId);
       }
     }
   }, [heldBills, products, loadHeldBill]);
@@ -221,18 +255,28 @@ export default function BillingPage() {
   };
   const loadHeld = async () => {
     try {
+      const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
       const hb = await fetch('/api/held-bills').then((r) => r.json());
-      setHeldBills(hb);
-      localStorage.setItem('cached_held_bills', JSON.stringify(hb));
-      return hb;
+      // Merge: Offline items first (they are more "recent" in the user's mind)
+      const combined = [...offlineQueue, ...hb];
+      setHeldBills(combined);
+      localStorage.setItem('cached_held_bills', JSON.stringify(combined));
+      return combined;
     } catch (e) {
       // Offline fallback
+      const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
       const cached = localStorage.getItem('cached_held_bills');
+      let combined = offlineQueue;
+
       if (cached) {
-        setHeldBills(JSON.parse(cached));
+        const cachedHB = JSON.parse(cached);
+        // Combine and de-duplicate by ID to be safe
+        const ids = new Set(offlineQueue.map((b: any) => b.id.toString()));
+        combined = [...offlineQueue, ...cachedHB.filter((b: any) => !ids.has(b.id.toString()))];
       }
-      // Don't rethrow, just return empty/cached to prevent crash
-      return cached ? JSON.parse(cached) : [];
+
+      setHeldBills(combined);
+      return combined;
     }
   };
 
@@ -644,8 +688,18 @@ export default function BillingPage() {
       }
 
       // ... Success logic
+      // ... Success logic: Remove from held bills if applicable
       if (currentHeldBillId) {
-        setHeldBills((prev) => prev.filter((b) => b.id !== currentHeldBillId));
+        // Remove from offline queue and cache
+        const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
+        const updatedQueue = offlineQueue.filter((b: any) => b.id.toString() !== currentHeldBillId.toString());
+        localStorage.setItem('offline_held_queue', JSON.stringify(updatedQueue));
+
+        const cached = JSON.parse(localStorage.getItem('cached_held_bills') || '[]');
+        const updatedCached = cached.filter((b: any) => b.id.toString() !== currentHeldBillId.toString());
+        localStorage.setItem('cached_held_bills', JSON.stringify(updatedCached));
+
+        setHeldBills(updatedCached);
         setCurrentHeldBillId(null);
       }
       setCart([]);
@@ -676,7 +730,16 @@ export default function BillingPage() {
         setValidatedCoupon(null);
         setCartDiscountValue(0);
         if (currentHeldBillId) {
-          setHeldBills((prev) => prev.filter((b) => b.id !== currentHeldBillId));
+          // Cleanup from localStorage too
+          const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
+          const updatedQueue = offlineQueue.filter((b: any) => b.id.toString() !== currentHeldBillId.toString());
+          localStorage.setItem('offline_held_queue', JSON.stringify(updatedQueue));
+
+          const cached = JSON.parse(localStorage.getItem('cached_held_bills') || '[]');
+          const updatedCached = cached.filter((b: any) => b.id.toString() !== currentHeldBillId.toString());
+          localStorage.setItem('cached_held_bills', JSON.stringify(updatedCached));
+
+          setHeldBills(updatedCached);
           setCurrentHeldBillId(null);
         }
 
@@ -948,7 +1011,8 @@ export default function BillingPage() {
         setIsLoadedCart(false);
       }
 
-      showSuccess('Cart saved OFFLINE.');
+      showSuccess(`Cart saved OFFLINE. (${cart.length} items)`);
+      console.log('OFFLINE SAVE DEBUG:', JSON.stringify(payload));
       setShowCartNamePrompt(false);
       setCartName('');
       setLoading(false);
@@ -1057,7 +1121,7 @@ export default function BillingPage() {
               }}
             />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
             {products.map((p) => (
               <div key={p.id} className="border rounded px-3 py-2 text-left">
                 <div className="font-medium">{p.name}</div>
@@ -1324,8 +1388,14 @@ export default function BillingPage() {
             </button>
             {invoiceData && (
               <button
-                onClick={startNewOrder}
-                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+                onClick={() => {
+                  if (cart.length > 0) {
+                    setNewOrderModalOpen(true);
+                  } else {
+                    startNewOrder();
+                  }
+                }}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-medium"
               >
                 New Order
               </button>
@@ -1442,6 +1512,18 @@ export default function BillingPage() {
           </div>
         </div>
       )}
+
+      <ConfirmationModal
+        isOpen={newOrderModalOpen}
+        title="Start New Order"
+        message="Are you sure you want to start a new order? This will clear all items from the current cart."
+        onConfirm={() => {
+          setNewOrderModalOpen(false);
+          startNewOrder();
+        }}
+        onCancel={() => setNewOrderModalOpen(false)}
+        confirmText="Clear & Start New"
+      />
     </div>
   );
 }
