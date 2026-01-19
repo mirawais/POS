@@ -61,6 +61,7 @@ const menuGroups: MenuGroup[] = [
     title: 'Management',
     items: [
       { href: '/admin/users', label: 'Users', icon: Users },
+      { href: '/admin/settings', label: 'Settings', icon: Settings },
     ],
   },
 ];
@@ -154,10 +155,9 @@ export function AdminSidebar() {
                             className={`
                               flex items-center gap-3 px-6 py-2.5 text-sm
                               transition-colors duration-150
-                              ${
-                                isActive
-                                  ? 'bg-blue-600 text-white border-r-2 border-blue-400'
-                                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                              ${isActive
+                                ? 'bg-blue-600 text-white border-r-2 border-blue-400'
+                                : 'text-gray-300 hover:bg-gray-800 hover:text-white'
                               }
                             `}
                           >

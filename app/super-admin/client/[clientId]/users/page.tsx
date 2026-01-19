@@ -5,9 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, UserPlus, Trash2, Edit } from 'lucide-react';
 
 export default function ClientUsersPage() {
-    const params = useParams();
+    const params = useParams() as any;
     const router = useRouter();
-    const clientId = params.clientId as string;
+    const clientId = params?.clientId;
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);

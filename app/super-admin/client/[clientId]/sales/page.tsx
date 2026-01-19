@@ -5,9 +5,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 
 export default function ClientSalesPage() {
-    const params = useParams();
+    const params = useParams() as any;
     const router = useRouter();
-    const clientId = params.clientId as string;
+    const clientId = params?.clientId;
     const [sales, setSales] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

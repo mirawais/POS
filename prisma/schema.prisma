@@ -11,8 +11,16 @@ model Client {
   id              String           @id @default(cuid())
   name            String
   logoUrl         String?          @map("logo_url")
+  companyName     String?          @map("company_name")
+  contactNumber   String?          @map("contact_number")
+  techContact     String?          @map("tech_contact")
+  email           String?
+  address         String?
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
+  isActive        Boolean          @default(true) @map("is_active")
+  activeDate      DateTime         @default(now()) @map("active_date")
+  inactiveDate    DateTime?        @map("inactive_date")
   users           User[]
   products        Product[]
   rawMaterials    RawMaterial[]
@@ -105,6 +113,7 @@ model RawMaterial {
   unit       String?   @default("unit")
   stock      Int       @default(0)
   lowStockAt Int?      @map("low_stock_at")
+  isUnlimited Boolean  @default(false) @map("is_unlimited")
   createdAt  DateTime  @default(now()) @map("created_at")
   updatedAt  DateTime  @updatedAt @map("updated_at")
   usedIn     ProductRawMaterial[]

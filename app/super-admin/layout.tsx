@@ -18,6 +18,7 @@ function SuperAdminNav() {
                     <div className="flex items-center gap-4 border-l border-slate-700 pl-6">
                         <Link href="/super-admin" className="hover:text-blue-400 text-sm font-medium transition-colors">Tenants</Link>
                         <Link href="/super-admin/reports" className="hover:text-blue-400 text-sm font-medium transition-colors">Global Reports</Link>
+                        <Link href="/super-admin/settings" className="hover:text-blue-400 text-sm font-medium transition-colors">Settings</Link>
                     </div>
                 </div>
                 <div className="flex items-center gap-4">

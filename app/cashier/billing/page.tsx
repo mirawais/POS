@@ -67,25 +67,61 @@ export default function BillingPage() {
   const [isOnline, setIsOnline] = useState(true);
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 50;
 
   const loadProducts = useCallback(async (term: string) => {
+    setCurrentPage(1); // Reset to first page on search/reload
+
+    // 1. Cache-First Strategy: Load from local storage IMMEDIATELY
+    // If there is a search term, we try to filter locally first to give instant feedback
+    const cached = localStorage.getItem('cached_products');
+    let localProducts: Product[] = [];
+
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          localProducts = parsed;
+          if (term) {
+            const lowerTerm = term.toLowerCase();
+            const filtered = parsed.filter(p =>
+              p.name.toLowerCase().includes(lowerTerm) ||
+              p.sku.toLowerCase().includes(lowerTerm)
+            );
+            setProducts(filtered);
+          } else {
+            setProducts(parsed);
+          }
+        }
+      } catch (e) {
+        console.error('Cache parse error', e);
+      }
+    }
+
+    // 2. Network-In-Background Strategy: Fetch fresh data silently
+    // Only attempt fetch if online roughly check or just try/catch
     try {
+      if (!term && !navigator.onLine) return; // Don't fetch if offline and just loading all (we have cache)
+
       const res = await fetch(`/api/products${term ? `?search=${encodeURIComponent(term)}` : ''}`);
       if (!res.ok) throw new Error('Failed to fetch');
       const p = await res.json();
       setProducts(p);
-      if (!term) localStorage.setItem('cached_products', JSON.stringify(p));
-    } catch (e) {
-      // If offline or failed, try cache
+
+      // Update cache ONLY if we fetched ALL products (no search term)
       if (!term) {
-        const cached = localStorage.getItem('cached_products');
-        if (cached) {
-          setProducts(JSON.parse(cached));
-          if (navigator.onLine) showError('Using cached products'); // Only show if we thought we were online
-        }
+        localStorage.setItem('cached_products', JSON.stringify(p));
       }
+    } catch (e) {
+      // If network fails, we rely on what we already showed from cache (step 1).
+      // If we didn't show anything (empty cache) and fetch failed:
+      if (localProducts.length === 0) {
+        console.error('Failed to load products and no cache available', e);
+      }
+      // If we successfully showed cached data filtered by term, the user is happy.
     }
-  }, [showError]);
+  }, []);
 
   const loadHeldBill = useCallback(async (bill: any) => {
     try {
@@ -363,19 +399,42 @@ export default function BillingPage() {
     };
   }, [cart, cartDiscountType, cartDiscountValue, validatedCoupon, taxes, taxId, taxMode]);
 
+  const getMaxStock = (product: Product, variant?: ProductVariant | null) => {
+    if (product.type === 'SIMPLE') {
+      return product.stock || 0;
+    }
+    if (product.type === 'VARIANT' && variant) {
+      return (variant as any).stock || 0;
+    }
+    if (product.type === 'COMPOSITE') {
+      // Calculate based on raw materials
+      const materials = (product as any).materials || [];
+      if (materials.length === 0) return 999999; // No recipe = assume infinite? or 0? sticking to existing behavior
+
+      let maxProducible = 999999;
+      for (const m of materials) {
+        const rawMat = m.rawMaterial;
+        // If unlimited, this material doesn't constrain us
+        if (rawMat?.isUnlimited) continue;
+
+        const requiredPerUnit = Number(m.quantity) || 0;
+        const availableStock = Number(rawMat?.stock) || 0;
+
+        if (requiredPerUnit <= 0) continue; // Should not happen but safety
+
+        const maxForThis = Math.floor(availableStock / requiredPerUnit);
+        if (maxForThis < maxProducible) {
+          maxProducible = maxForThis;
+        }
+      }
+      return maxProducible;
+    }
+    return 0;
+  };
+
   const addToCart = (product: Product, variant?: ProductVariant) => {
     // Check stock before adding
-    let availableStock = 0;
-    if (product.type === 'SIMPLE' || !product.type) {
-      availableStock = product.stock || 0;
-    } else if (product.type === 'VARIANT' && variant) {
-      availableStock = (variant as any).stock || 0;
-    } else if (product.type === 'COMPOSITE') {
-      // For composite products, stock is determined by raw materials
-      // Since we don't have real-time raw material stock here, we allow adding to cart
-      // Backend will validate actual availability during checkout
-      availableStock = 999999;
-    }
+    const availableStock = getMaxStock(product, variant);
 
     // Check current cart quantity
     const key = `${product.id}:${variant?.id || 'base'}`;
@@ -407,14 +466,7 @@ export default function BillingPage() {
       if (!item) return prev;
 
       // Check stock
-      let availableStock = 0;
-      if (item.product.type === 'SIMPLE') {
-        availableStock = item.product.stock || 0;
-      } else if (item.product.type === 'VARIANT' && item.variant) {
-        availableStock = item.variant?.stock || 0;
-      } else if (item.product.type === 'COMPOSITE') {
-        availableStock = 999999;
-      }
+      const availableStock = getMaxStock(item.product, item.variant);
 
       if (qty > availableStock) {
         showError(
@@ -1049,6 +1101,56 @@ export default function BillingPage() {
       setCartName('');
       startNewOrder();
     } catch (e: any) {
+      // If network fails (even if navigator.onLine was true initially), fallback to offline save
+      console.error('Save cart failed:', e);
+
+      // Check if it's a network error or explicitly "Offline"
+      if (
+        e.message === 'Failed to fetch' ||
+        e.message === 'Network request failed' ||
+        e.message.includes('network') ||
+        !navigator.onLine
+      ) {
+        // Fallback: Save Offline
+        setLoading(true);
+        const offlineId = (currentHeldBillId && isLoadedCart) ? currentHeldBillId : `OFF-HELD-${Date.now()}`;
+        const offlineBill = {
+          id: offlineId,
+          createdAt: new Date().toISOString(),
+          data: payload,
+          isOffline: true
+        };
+
+        // 1. Update cached held bills (Display)
+        const cached = JSON.parse(localStorage.getItem('cached_held_bills') || '[]');
+        const updatedCached = (currentHeldBillId && isLoadedCart)
+          ? cached.map((b: any) => b.id === offlineId ? offlineBill : b)
+          : [offlineBill, ...cached];
+        localStorage.setItem('cached_held_bills', JSON.stringify(updatedCached));
+        setHeldBills(updatedCached);
+
+        // 2. Queue for Sync
+        const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
+        const filteredQueue = offlineQueue.filter((q: any) => q.id !== offlineId);
+        filteredQueue.push(offlineBill);
+        localStorage.setItem('offline_held_queue', JSON.stringify(filteredQueue));
+
+        if (currentHeldBillId && isLoadedCart) {
+          // Updated existing
+        } else {
+          // Created new
+          setCurrentHeldBillId(null);
+          setIsLoadedCart(false);
+        }
+
+        showSuccess(`Cart saved OFFLINE (Network Error). (${cart.length} items)`);
+        setShowCartNamePrompt(false);
+        setCartName('');
+        setLoading(false);
+        startNewOrder();
+        return;
+      }
+
       showError(e.message || 'Save cart failed');
     } finally {
       setLoading(false);
@@ -1122,7 +1224,7 @@ export default function BillingPage() {
             />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-            {products.map((p) => (
+            {products.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((p) => (
               <div key={p.id} className="border rounded px-3 py-2 text-left">
                 <div className="font-medium">{p.name}</div>
                 <div className="text-xs text-gray-500">{p.sku}</div>
@@ -1157,6 +1259,34 @@ export default function BillingPage() {
             ))}
             {products.length === 0 && <p className="text-sm text-gray-600">No products found.</p>}
           </div>
+
+          {/* Pagination Controls */}
+          {products.length > ITEMS_PER_PAGE && (
+            <div className="flex items-center justify-between mt-4 pt-2 border-t">
+              <span className="text-sm text-gray-600">
+                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, products.length)} of {products.length} entries
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Previous
+                </button>
+                <span className="text-sm bg-gray-100 px-3 py-1 rounded flex items-center">
+                  Page {currentPage} of {Math.ceil(products.length / ITEMS_PER_PAGE)}
+                </span>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / ITEMS_PER_PAGE), p + 1))}
+                  disabled={currentPage === Math.ceil(products.length / ITEMS_PER_PAGE)}
+                  className="px-3 py-1 border rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="p-4 border rounded bg-white space-y-3">
@@ -1423,34 +1553,34 @@ export default function BillingPage() {
 
       {/* Payment Method Modal */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Select Payment Method</h3>
-            <div className="space-y-3 mb-4">
-              <label className="flex items-center p-4 border rounded cursor-pointer hover:bg-gray-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-4 md:p-6 w-full max-w-sm md:max-w-md shadow-xl transform transition-all scale-100">
+            <h3 className="text-xl md:text-lg font-bold mb-4 text-center md:text-left">Select Payment Method</h3>
+            <div className="space-y-3 mb-6">
+              <label className="flex items-center p-4 border-2 border-transparent hover:border-blue-100 bg-gray-50 rounded-xl cursor-pointer hover:bg-blue-50 transition-all active:scale-[0.98]">
                 <input
                   type="radio"
                   name="paymentMethod"
                   value="CASH"
                   checked={paymentMethod === 'CASH'}
                   onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'CARD')}
-                  className="mr-3"
+                  className="w-5 h-5 text-blue-600 mr-4"
                 />
-                <span className="text-lg font-medium">Cash</span>
+                <span className="text-lg font-medium">Cash Payment</span>
               </label>
-              <label className="flex items-center p-4 border rounded cursor-pointer hover:bg-gray-50">
+              <label className="flex items-center p-4 border-2 border-transparent hover:border-blue-100 bg-gray-50 rounded-xl cursor-pointer hover:bg-blue-50 transition-all active:scale-[0.98]">
                 <input
                   type="radio"
                   name="paymentMethod"
                   value="CARD"
                   checked={paymentMethod === 'CARD'}
                   onChange={(e) => setPaymentMethod(e.target.value as 'CASH' | 'CARD')}
-                  className="mr-3"
+                  className="w-5 h-5 text-blue-600 mr-4"
                 />
-                <span className="text-lg font-medium">Card</span>
+                <span className="text-lg font-medium">Card Payment</span>
               </label>
             </div>
-            <div className="flex gap-2 justify-end">
+            <div className="flex flex-col-reverse md:flex-row gap-3 md:justify-end mt-6">
               <button
                 type="button"
                 onClick={() => setShowPaymentModal(false)}

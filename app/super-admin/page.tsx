@@ -13,16 +13,31 @@ interface ClientStats {
 interface Client {
     id: string;
     name: string;
+    companyName?: string;
+    contactNumber?: string;
+    techContact?: string;
+    email?: string;
+    address?: string;
     createdAt: string;
     _count: ClientStats;
 }
+
+import { useToast } from '@/components/notifications/ToastContainer';
 
 export default function SuperAdminDashboard() {
     const [clients, setClients] = useState<Client[]>([]);
     const [loading, setLoading] = useState(true);
     const [showCreate, setShowCreate] = useState(false);
-    const [newClientName, setNewClientName] = useState('');
+    const [newClientData, setNewClientData] = useState({
+        name: '',
+        companyName: '',
+        contactNumber: '',
+        techContact: '',
+        email: '',
+        address: ''
+    });
     const [creating, setCreating] = useState(false);
+    const { showSuccess, showError } = useToast();
 
     useEffect(() => {
         fetchClients();
@@ -37,6 +52,7 @@ export default function SuperAdminDashboard() {
             }
         } catch (err) {
             console.error(err);
+            showError("Failed to fetch clients.");
         } finally {
             setLoading(false);
         }
@@ -44,25 +60,31 @@ export default function SuperAdminDashboard() {
 
     const createClient = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!newClientName.trim()) return;
+        if (!newClientData.name.trim()) {
+            showError("Client Name cannot be empty.");
+            return;
+        }
 
         setCreating(true);
         try {
             const res = await fetch('/api/clients', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newClientName }),
+                body: JSON.stringify(newClientData),
             });
 
             if (res.ok) {
-                setNewClientName('');
+                setNewClientData({ name: '', companyName: '', contactNumber: '', techContact: '', email: '', address: '' });
                 setShowCreate(false);
                 fetchClients();
+                showSuccess("Client created successfully.");
             } else {
-                alert('Failed to create client');
+                const errorData = await res.json();
+                showError(errorData.message || "Failed to create client.");
             }
         } catch (err) {
             console.error(err);
+            showError("An error occurred while creating the client.");
         } finally {
             setCreating(false);
         }
@@ -87,33 +109,112 @@ export default function SuperAdminDashboard() {
             {showCreate && (
                 <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm animate-in fade-in slide-in-from-top-2">
                     <h3 className="font-semibold mb-4">Create New Client</h3>
-                    <form onSubmit={createClient} className="flex gap-4">
-                        <input
-                            type="text"
-                            placeholder="Business Name"
-                            value={newClientName}
-                            onChange={e => setNewClientName(e.target.value)}
-                            className="flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                            autoFocus
-                        />
-                        <button
-                            type="submit"
-                            disabled={creating}
-                            className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
-                        >
-                            {creating ? 'Creating...' : 'Create'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => setShowCreate(false)}
-                            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                        >
-                            Cancel
-                        </button>
+                    <form onSubmit={createClient} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Client Name *</label>
+                                <input
+                                    type="text"
+                                    placeholder="Client Name"
+                                    value={newClientData.name}
+                                    onChange={e => setNewClientData({ ...newClientData, name: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    required
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Company Name (Optional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="Company Name"
+                                    value={newClientData.companyName}
+                                    onChange={e => setNewClientData({ ...newClientData, companyName: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Contact Number (Optional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="Contact Number"
+                                    value={newClientData.contactNumber}
+                                    onChange={e => setNewClientData({ ...newClientData, contactNumber: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Technical Contact (Optional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="Tech Contact"
+                                    value={newClientData.techContact}
+                                    onChange={e => setNewClientData({ ...newClientData, techContact: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Email Address (Optional)</label>
+                                <input
+                                    type="email"
+                                    placeholder="Email"
+                                    value={newClientData.email}
+                                    onChange={e => setNewClientData({ ...newClientData, email: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Mailing Address (Optional)</label>
+                                <input
+                                    type="text"
+                                    placeholder="Address"
+                                    value={newClientData.address}
+                                    onChange={e => setNewClientData({ ...newClientData, address: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Active Date (Start)</label>
+                                <input
+                                    type="date"
+                                    value={(newClientData as any).activeDate || new Date().toISOString().split('T')[0]}
+                                    onChange={e => setNewClientData({ ...newClientData, activeDate: e.target.value } as any)}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                    required
+                                />
+                            </div>
+
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Inactive Date (Optional End)</label>
+                                <input
+                                    type="date"
+                                    value={(newClientData as any).inactiveDate || ''}
+                                    onChange={e => setNewClientData({ ...newClientData, inactiveDate: e.target.value } as any)}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                />
+                                <p className="text-xs text-gray-500">Leave empty for unlimited duration</p>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-3 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowCreate(false)}
+                                className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={creating}
+                                className="bg-blue-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                {creating ? 'Creating...' : 'Create Client'}
+                            </button>
+                        </div>
                     </form>
                 </div>
             )}
-
             {loading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {[1, 2, 3].map(i => (
@@ -128,13 +229,49 @@ export default function SuperAdminDashboard() {
                                 <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
                                     <Building2 className="h-6 w-6" />
                                 </div>
-                                <div className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded">
-                                    {client.id.slice(-8)}
+                                <div className="text-right">
+                                    <div className="text-xs font-mono text-gray-400 bg-gray-50 px-2 py-1 rounded inline-block mb-1">
+                                        {client.id.slice(-8)}
+                                    </div>
+                                    <div>
+                                        {(() => {
+                                            const now = new Date();
+                                            const activeDate = (client as any).activeDate ? new Date((client as any).activeDate) : new Date(0);
+                                            const inactiveDate = (client as any).inactiveDate ? new Date((client as any).inactiveDate) : null;
+                                            const isActive = (client as any).isActive;
+
+                                            let status = 'ACTIVE';
+                                            let color = 'bg-green-100 text-green-800';
+
+                                            if (!isActive) {
+                                                status = 'DISABLED';
+                                                color = 'bg-red-100 text-red-800';
+                                            } else if (activeDate > now) {
+                                                status = 'SCHEDULED';
+                                                color = 'bg-yellow-100 text-yellow-800';
+                                            } else if (inactiveDate && inactiveDate < now) {
+                                                status = 'EXPIRED';
+                                                color = 'bg-red-100 text-red-800';
+                                            }
+
+                                            return (
+                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${color}`}>
+                                                    {status}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
                                 </div>
                             </div>
 
                             <h3 className="font-bold text-lg mb-1 group-hover:text-blue-600 transition-colors">{client.name}</h3>
                             <p className="text-sm text-gray-500 mb-6">Created {new Date(client.createdAt).toLocaleDateString()}</p>
+
+                            {(client as any).companyName && (
+                                <p className="text-xs text-gray-500 font-medium -mt-4 mb-4">
+                                    {(client as any).companyName}
+                                </p>
+                            )}
 
                             <div className="grid grid-cols-3 gap-2 mb-6 border-t border-b border-gray-100 py-4">
                                 <div className="text-center">

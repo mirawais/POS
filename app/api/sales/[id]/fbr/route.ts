@@ -2,54 +2,80 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 import https from 'https';
+import http from 'http';
 import { URL } from 'url';
 
-export const dynamic = "force-dynamic";
-
-// Helper function to make HTTPS request with SSL verification disabled
+// Helper function to make requests with automatic fallback for SSL errors
 async function makeFBRRequest(payload: any, apiUrl: string, authToken: string): Promise<{ status: number; data: any }> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(apiUrl);
-    const postData = JSON.stringify(payload);
+  const attemptRequest = (urlStr: string, useHttps: boolean) => {
+    return new Promise<{ status: number; data: any }>((resolve, reject) => {
+      const url = new URL(urlStr);
+      const postData = JSON.stringify(payload);
+      const client = useHttps ? https : http;
 
-    const options = {
-      hostname: url.hostname,
-      port: url.port || 8244,
-      path: url.pathname,
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(postData),
-      },
-      // Disable SSL verification (equivalent to cURL SSL_VERIFYHOST=0, SSL_VERIFYPEER=0)
-      rejectUnauthorized: false,
-    };
+      const options: any = {
+        hostname: url.hostname,
+        port: url.port || (useHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData),
+        },
+        timeout: 15000
+      };
 
-    const req = https.request(options, (res) => {
-      let data = '';
-      res.on('data', (chunk) => {
-        data += chunk;
+      if (useHttps) {
+        options.rejectUnauthorized = false; // Disable SSL verification for testing/self-signed certs
+      }
+
+      const req = client.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const jsonData = data ? JSON.parse(data) : {};
+            resolve({ status: res.statusCode || 500, data: jsonData });
+          } catch (e) {
+            resolve({ status: res.statusCode || 500, data: { rawResponse: data } });
+          }
+        });
       });
-      res.on('end', () => {
-        try {
-          const jsonData = data ? JSON.parse(data) : {};
-          resolve({ status: res.statusCode || 500, data: jsonData });
-        } catch (e) {
-          resolve({ status: res.statusCode || 500, data: { rawResponse: data } });
-        }
+
+      req.on('error', (error: any) => {
+        // Attach property to identify SSL/Protocol errors
+        const isSslError = error.code === 'EPROTO' || error.message?.includes('SSL');
+        (error as any).canFallback = isSslError && useHttps;
+        reject(error);
       });
-    });
 
-    req.on('error', (error) => {
-      console.error('FBR HTTPS Request Error:', error);
-      reject(error);
-    });
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('FBR API Request Timeout'));
+      });
 
-    req.write(postData);
-    req.end();
-  });
+      req.write(postData);
+      req.end();
+    });
+  };
+
+  try {
+    // Pehli koshish: Original URL ke mutabiq (usually HTTPS)
+    const isHttps = apiUrl.toLowerCase().startsWith('https');
+    return await attemptRequest(apiUrl, isHttps);
+  } catch (error: any) {
+    // Agar SSL error aaye toh plain HTTP par retry karein
+    if (error.canFallback) {
+      console.warn('FBR SSL Error detected. Retrying with plain HTTP fallback...');
+      const fallbackUrl = apiUrl.replace(/^https:/i, 'http:');
+      return await attemptRequest(fallbackUrl, false);
+    }
+    throw error;
+  }
 }
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
@@ -97,9 +123,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     // Check if FBR Invoice ID already exists
     if (sale.fbrInvoiceId) {
-      return NextResponse.json({ 
-        error: 'FBR Invoice already generated', 
-        fbrInvoiceId: sale.fbrInvoiceId 
+      return NextResponse.json({
+        error: 'FBR Invoice already generated',
+        fbrInvoiceId: sale.fbrInvoiceId
       }, { status: 400 });
     }
 
@@ -109,8 +135,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const itemData: any[] = [];
 
     for (const item of sale.items) {
-      const itemName = item.variant?.name 
-        ? `${item.product.name} (${item.variant.name})` 
+      const itemName = item.variant?.name
+        ? `${item.product.name} (${item.variant.name})`
         : item.product.name;
       const itemQuantity = item.quantity;
       const itemSubtotal = Number(item.price) * itemQuantity; // Subtotal before discount and tax
@@ -118,7 +144,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       const itemTotalPrice = Number(item.total); // Total after discount and tax
       const itemTaxCharged = Number(item.tax);
       const itemDiscount = Number(item.discount);
-      
+
       totalQuantity += itemQuantity;
       totalSaleValue += itemTotalPrice; // Sum of all item totals (as per PHP example)
 
@@ -164,42 +190,42 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     // Send request to FBR API with SSL verification disabled
     console.log('Sending FBR request:', JSON.stringify(fbrPayload, null, 2));
-    
+
     let fbrResult: any;
     try {
       const response = await makeFBRRequest(fbrPayload, FBR_API_URL, FBR_AUTH_TOKEN);
-      
+
       if (response.status < 200 || response.status >= 300) {
         console.error('FBR API Error Response:', {
           status: response.status,
           data: response.data,
         });
-        return NextResponse.json({ 
-          error: 'FBR API request failed', 
+        return NextResponse.json({
+          error: 'FBR API request failed',
           status: response.status,
-          details: response.data 
+          details: response.data
         }, { status: response.status });
       }
-      
+
       fbrResult = response.data;
       console.log('FBR API Response:', JSON.stringify(fbrResult, null, 2));
     } catch (error: any) {
       console.error('FBR Request Error:', error);
-      return NextResponse.json({ 
-        error: 'Failed to connect to FBR API', 
+      return NextResponse.json({
+        error: 'Failed to connect to FBR API',
         details: error.message || 'Network error'
       }, { status: 500 });
     }
-    
+
     // Extract FBR Invoice ID / USIN from response
     // The response structure may vary, adjust based on actual FBR API response
     const fbrInvoiceId = fbrResult.USIN || fbrResult.InvoiceNumber || fbrResult.id || null;
 
     if (!fbrInvoiceId) {
       console.error('FBR Response:', fbrResult);
-      return NextResponse.json({ 
+      return NextResponse.json({
         error: 'FBR Invoice ID not received in response',
-        response: fbrResult 
+        response: fbrResult
       }, { status: 500 });
     }
 
@@ -217,15 +243,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     });
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       fbrInvoiceId,
-      sale: updatedSale 
+      sale: updatedSale
     });
   } catch (e: any) {
     console.error('FBR integration error:', e);
-    return NextResponse.json({ 
-      error: e?.message ?? 'FBR integration failed' 
+    return NextResponse.json({
+      error: e?.message ?? 'FBR integration failed'
     }, { status: 500 });
   }
 }

@@ -35,6 +35,7 @@ export async function POST(req: Request) {
       sku,
       unit: unit || 'unit',
       stock: Number(stock) || 0,
+      isUnlimited: data.isUnlimited || false,
       lowStockAt: lowStockAt !== undefined && lowStockAt !== null ? Number(lowStockAt) : null,
       clientId,
     },
@@ -57,6 +58,7 @@ export async function PATCH(req: Request) {
       ...(sku ? { sku } : {}),
       ...(unit !== undefined ? { unit: unit || 'unit' } : {}),
       ...(stock !== undefined ? { stock: Number(stock) || 0 } : {}),
+      ...(data.isUnlimited !== undefined ? { isUnlimited: data.isUnlimited } : {}),
       ...(lowStockAt !== undefined ? { lowStockAt: lowStockAt !== null ? Number(lowStockAt) : null } : {}),
     },
   });

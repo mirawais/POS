@@ -62,7 +62,19 @@ export default function LoginPage() {
       });
 
       if ((res as any)?.error) {
-        showError('Invalid email or password. Please try again.');
+        // NextAuth sometimes wraps errors or returns specific codes
+        const errorMsg = (res as any).error;
+        console.error("Login Result Error:", errorMsg);
+
+        if (errorMsg.includes('deactivated') || errorMsg.includes('expired') || errorMsg.includes('not yet active')) {
+          showError(errorMsg);
+        } else if (errorMsg === 'Configuration') {
+          // Often happens if check failed with Error object
+          showError('Account validation failed. Please check your status.');
+        } else {
+          // Fallback for generic credential error
+          showError('Invalid email or password. Please try again.');
+        }
       } else if (res?.ok) {
         setTimeout(() => {
           redirectBasedOnRole();

@@ -16,6 +16,8 @@ export default function ReportsPage() {
   const [cashiers, setCashiers] = useState<any[]>([]);
   const [selectedCashier, setSelectedCashier] = useState<string>('');
   const [viewMode, setViewMode] = useState<'sales' | 'products' | 'customers'>('sales');
+  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
+  const [isCashierDropdownOpen, setIsCashierDropdownOpen] = useState(false);
 
   const handleViewModeChange = (mode: 'sales' | 'products' | 'customers') => {
     setViewMode(mode);
@@ -309,28 +311,28 @@ export default function ReportsPage() {
     <div className="min-h-screen bg-gray-50">
       <AdminHeader title="Reports" />
       <div className="p-6 space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Sales Reports</h1>
             <p className="mt-2 text-gray-600">View and export sales history with filters.</p>
           </div>
-          <div className="flex bg-white border rounded p-1">
+          <div className="flex flex-wrap gap-2 w-full md:w-auto bg-white border rounded p-1">
             <button
               onClick={() => handleViewModeChange('sales')}
-              className={`px-4 py-2 rounded text-sm font-medium ${viewMode === 'sales' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              className={`flex-1 md:flex-none px-4 py-2 rounded text-sm font-medium whitespace-nowrap ${viewMode === 'sales' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               Sales List
             </button>
             <button
               onClick={() => handleViewModeChange('products')}
-              className={`px-4 py-2 rounded text-sm font-medium ${viewMode === 'products' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              className={`flex-1 md:flex-none px-4 py-2 rounded text-sm font-medium whitespace-nowrap ${viewMode === 'products' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               Product Report
             </button>
 
             <button
               onClick={() => handleViewModeChange('customers')}
-              className={`px-4 py-2 rounded text-sm font-medium ${viewMode === 'customers' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              className={`flex-1 md:flex-none px-4 py-2 rounded text-sm font-medium whitespace-nowrap ${viewMode === 'customers' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
             >
               Customers
             </button>
@@ -343,38 +345,94 @@ export default function ReportsPage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-sm text-gray-700 mb-1">Date Filter</label>
-              <select
-                value={dateFilter}
-                onChange={(e) => {
-                  setDateFilter(e.target.value);
-                  if (e.target.value === 'custom') {
-                    setStartDate(defaultStartDateStr);
-                    setEndDate(today);
-                  }
-                }}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <option value="last7days">Last 7 Days</option>
-                <option value="lastmonth">Last Month</option>
-                <option value="custom">Custom Date Range</option>
-              </select>
+              <div className="relative">
+                <button
+                  onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
+                  className="w-full border rounded px-3 py-2 text-sm bg-white text-left flex justify-between items-center"
+                >
+                  <span className="block truncate">
+                    {{
+                      'today': 'Today',
+                      'yesterday': 'Yesterday',
+                      'last7days': 'Last 7 Days',
+                      'lastmonth': 'Last Month',
+                      'custom': 'Custom Date Range'
+                    }[dateFilter] || dateFilter}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {isDateDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsDateDropdownOpen(false)}></div>
+                    <div className="absolute top-full left-0 w-full z-20 bg-white border rounded shadow-lg mt-1 max-h-60 overflow-y-auto">
+                      {[
+                        { val: 'today', label: 'Today' },
+                        { val: 'yesterday', label: 'Yesterday' },
+                        { val: 'last7days', label: 'Last 7 Days' },
+                        { val: 'lastmonth', label: 'Last Month' },
+                        { val: 'custom', label: 'Custom Date Range' }
+                      ].map((opt) => (
+                        <div
+                          key={opt.val}
+                          className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                          onClick={() => {
+                            setDateFilter(opt.val);
+                            if (opt.val === 'custom') {
+                              setStartDate(defaultStartDateStr);
+                              setEndDate(today);
+                            }
+                            setIsDateDropdownOpen(false);
+                          }}
+                        >
+                          {opt.label}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm text-gray-700 mb-1">Cashier</label>
-              <select
-                value={selectedCashier}
-                onChange={(e) => setSelectedCashier(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-              >
-                <option value="">All Cashiers</option>
-                {cashiers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name || c.email}
-                  </option>
-                ))}
-              </select>
+              <div className="relative">
+                <button
+                  onClick={() => setIsCashierDropdownOpen(!isCashierDropdownOpen)}
+                  className="w-full border rounded px-3 py-2 text-sm bg-white text-left flex justify-between items-center"
+                >
+                  <span className="block truncate">
+                    {selectedCashier ? (cashiers.find(c => c.id === selectedCashier)?.name || 'Unknown') : 'All Cashiers'}
+                  </span>
+                  <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {isCashierDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsCashierDropdownOpen(false)}></div>
+                    <div className="absolute top-full left-0 w-full z-20 bg-white border rounded shadow-lg mt-1 max-h-60 overflow-y-auto">
+                      <div
+                        className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                        onClick={() => {
+                          setSelectedCashier('');
+                          setIsCashierDropdownOpen(false);
+                        }}
+                      >
+                        All Cashiers
+                      </div>
+                      {cashiers.map((c) => (
+                        <div
+                          key={c.id}
+                          className="px-3 py-2 text-sm hover:bg-gray-100 cursor-pointer"
+                          onClick={() => {
+                            setSelectedCashier(c.id);
+                            setIsCashierDropdownOpen(false);
+                          }}
+                        >
+                          {c.name || c.email}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             {dateFilter === 'custom' && (
               <>
@@ -475,72 +533,146 @@ export default function ReportsPage() {
 
         {!loading && !error && sales.length > 0 && viewMode === 'products' && (
           <div className="border rounded bg-white overflow-hidden">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="px-4 py-3 font-semibold text-gray-900">Product</th>
-                  <th className="px-4 py-3 font-semibold text-gray-900">SKU</th>
-                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Sold Qty</th>
-                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Returned</th>
-                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Net Qty</th>
-                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Total Revenue</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {(() => {
-                  const stats = new Map<string, any>();
-                  sales.forEach((sale: any) => {
-                    (sale.items || []).forEach((item: any) => {
-                      const key = `${item.productId}:${item.variantId || 'base'}`;
-                      const existing = stats.get(key);
-                      const qty = item.quantity || 0;
-                      const returned = item.returnedQuantity || 0;
-                      const amount = Number(item.total) || 0;
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold text-gray-900">Product</th>
+                    <th className="px-4 py-3 font-semibold text-gray-900">SKU</th>
+                    <th className="px-4 py-3 font-semibold text-gray-900 text-right">Sold Qty</th>
+                    <th className="px-4 py-3 font-semibold text-gray-900 text-right">Returned</th>
+                    <th className="px-4 py-3 font-semibold text-gray-900 text-right">Net Qty</th>
+                    <th className="px-4 py-3 font-semibold text-gray-900 text-right">Total Revenue</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {(() => {
+                    const stats = new Map<string, any>();
+                    sales.forEach((sale: any) => {
+                      (sale.items || []).forEach((item: any) => {
+                        const key = `${item.productId}:${item.variantId || 'base'}`;
+                        const existing = stats.get(key);
+                        const qty = item.quantity || 0;
+                        const returned = item.returnedQuantity || 0;
+                        const amount = Number(item.total) || 0;
 
-                      if (existing) {
-                        existing.quantity += qty;
-                        existing.returned += returned;
-                        existing.total += amount;
-                        stats.set(key, existing);
-                      } else {
-                        stats.set(key, {
-                          id: item.productId,
-                          name: item.product?.name || 'Unknown',
-                          sku: item.product?.sku || '-',
-                          variantName: item.variant?.name || null,
-                          quantity: qty,
-                          returned: returned,
-                          total: amount
-                        });
-                      }
+                        if (existing) {
+                          existing.quantity += qty;
+                          existing.returned += returned;
+                          existing.total += amount;
+                          stats.set(key, existing);
+                        } else {
+                          stats.set(key, {
+                            id: item.productId,
+                            name: item.product?.name || 'Unknown',
+                            sku: item.product?.sku || '-',
+                            variantName: item.variant?.name || null,
+                            quantity: qty,
+                            returned: returned,
+                            total: amount
+                          });
+                        }
+                      });
                     });
+                    let list = Array.from(stats.values()).sort((a, b) => b.total - a.total);
+
+                    if (orderIdFilter) {
+                      const searchLower = orderIdFilter.toLowerCase();
+                      list = list.filter(p =>
+                        (p.name && p.name.toLowerCase().includes(searchLower)) ||
+                        (p.sku && p.sku.toLowerCase().includes(searchLower))
+                      );
+                    }
+
+                    return list.map((p: any) => (
+                      <tr key={p.sku + p.variantName} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{p.name}</div>
+                          {p.variantName && <div className="text-xs text-gray-500">{p.variantName}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">{p.sku}</td>
+                        <td className="px-4 py-3 text-right">{p.quantity}</td>
+                        <td className="px-4 py-3 text-right text-red-600">{p.returned > 0 ? p.returned : '-'}</td>
+                        <td className="px-4 py-3 text-right font-medium">{p.quantity - p.returned}</td>
+                        <td className="px-4 py-3 text-right font-medium text-blue-700">Rs. {p.total.toFixed(2)}</td>
+                      </tr>
+                    ));
+                  })()}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile Card View */}
+            <div className="md:hidden divide-y">
+              {(() => {
+                const stats = new Map<string, any>();
+                sales.forEach((sale: any) => {
+                  (sale.items || []).forEach((item: any) => {
+                    const key = `${item.productId}:${item.variantId || 'base'}`;
+                    const existing = stats.get(key);
+                    const qty = item.quantity || 0;
+                    const returned = item.returnedQuantity || 0;
+                    const amount = Number(item.total) || 0;
+
+                    if (existing) {
+                      existing.quantity += qty;
+                      existing.returned += returned;
+                      existing.total += amount;
+                      stats.set(key, existing);
+                    } else {
+                      stats.set(key, {
+                        id: item.productId,
+                        name: item.product?.name || 'Unknown',
+                        sku: item.product?.sku || '-',
+                        variantName: item.variant?.name || null,
+                        quantity: qty,
+                        returned: returned,
+                        total: amount
+                      });
+                    }
                   });
-                  let list = Array.from(stats.values()).sort((a, b) => b.total - a.total);
+                });
+                let list = Array.from(stats.values()).sort((a, b) => b.total - a.total);
 
-                  if (orderIdFilter) {
-                    const searchLower = orderIdFilter.toLowerCase();
-                    list = list.filter(p =>
-                      (p.name && p.name.toLowerCase().includes(searchLower)) ||
-                      (p.sku && p.sku.toLowerCase().includes(searchLower))
-                    );
-                  }
+                if (orderIdFilter) {
+                  const searchLower = orderIdFilter.toLowerCase();
+                  list = list.filter(p =>
+                    (p.name && p.name.toLowerCase().includes(searchLower)) ||
+                    (p.sku && p.sku.toLowerCase().includes(searchLower))
+                  );
+                }
 
-                  return list.map((p: any) => (
-                    <tr key={p.sku + p.variantName} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
+                return list.map((p: any) => (
+                  <div key={p.sku + p.variantName} className="p-4 space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
                         <div className="font-medium">{p.name}</div>
                         {p.variantName && <div className="text-xs text-gray-500">{p.variantName}</div>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{p.sku}</td>
-                      <td className="px-4 py-3 text-right">{p.quantity}</td>
-                      <td className="px-4 py-3 text-right text-red-600">{p.returned > 0 ? p.returned : '-'}</td>
-                      <td className="px-4 py-3 text-right font-medium">{p.quantity - p.returned}</td>
-                      <td className="px-4 py-3 text-right font-medium text-blue-700">Rs. {p.total.toFixed(2)}</td>
-                    </tr>
-                  ));
-                })()}
-              </tbody>
-            </table>
+                        <div className="text-xs text-gray-400 mt-1">SKU: {p.sku}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold text-blue-700">Rs. {p.total.toFixed(2)}</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                      <div className="text-center">
+                        <div className="font-semibold text-gray-900">{p.quantity}</div>
+                        <div>Sold</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold text-red-600">{p.returned}</div>
+                        <div>Returned</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="font-semibold text-green-700">{p.quantity - p.returned}</div>
+                        <div>Net</div>
+                      </div>
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
           </div>
         )}
 

@@ -21,6 +21,33 @@ export const authConfig: NextAuthOptions = {
         if (!user) return null;
         const ok = await bcrypt.compare(credentials.password, user.password);
         if (!ok) return null;
+
+        // Check Client Status for non-Super Admins
+        if (user.role !== 'SUPER_ADMIN' && user.clientId) {
+          const client = await prisma.client.findUnique({
+            where: { id: user.clientId },
+            select: { isActive: true, activeDate: true, inactiveDate: true }
+          });
+
+          if (client) {
+            const now = new Date();
+            const activeDate = client.activeDate ? new Date(client.activeDate) : new Date(0);
+            const inactiveDate = client.inactiveDate ? new Date(client.inactiveDate) : null;
+
+            if (!client.isActive) {
+              throw new Error("Your organization's account has been deactivated. Please contact support.");
+            }
+
+            if (activeDate > now) {
+              throw new Error("Your organization's account is not yet active.");
+            }
+
+            if (inactiveDate && inactiveDate < now) {
+              throw new Error("Your organization's account has expired. Please renew your subscription.");
+            }
+          }
+        }
+
         return {
           id: user.id,
           email: user.email,
