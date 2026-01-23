@@ -3,7 +3,7 @@
 
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
-import { Wifi, WifiOff, RefreshCcw } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 
 
@@ -24,6 +24,8 @@ type Product = {
   type?: 'SIMPLE' | 'VARIANT' | 'COMPOSITE';
   stock?: number;
   variants?: ProductVariant[];
+  isFavorite?: boolean;
+  createdAt?: string | Date;
 };
 
 type Tax = { id: string; name: string; percent: number; isDefault: boolean };
@@ -62,6 +64,11 @@ export default function BillingPage() {
   const [isLoadedCart, setIsLoadedCart] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+
+  // Sorting State
+  const [favoritesFirst, setFavoritesFirst] = useState(true);
+  const [sortBy, setSortBy] = useState<'NAME' | 'LATEST'>('LATEST');
+  const [sortAsc, setSortAsc] = useState(false);
 
   // Offline Mode State
   const [isOnline, setIsOnline] = useState(true);
@@ -122,6 +129,34 @@ export default function BillingPage() {
       // If we successfully showed cached data filtered by term, the user is happy.
     }
   }, []);
+
+  const sortedProducts = useMemo(() => {
+    const list = [...products];
+
+    list.sort((a, b) => {
+      // 1. Favorites First Logic
+      if (favoritesFirst) {
+        if (a.isFavorite && !b.isFavorite) return -1;
+        if (!a.isFavorite && b.isFavorite) return 1;
+      }
+
+      // 2. Primary Sort Field
+      let comparison = 0;
+      if (sortBy === 'NAME') {
+        comparison = a.name.localeCompare(b.name);
+      } else {
+        // LATEST (createdAt)
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        comparison = dateA - dateB;
+      }
+
+      // 3. Direction
+      return sortAsc ? comparison : -comparison;
+    });
+
+    return list;
+  }, [products, favoritesFirst, sortBy, sortAsc]);
 
   const loadHeldBill = useCallback(async (bill: any) => {
     try {
@@ -889,6 +924,8 @@ export default function BillingPage() {
     // 2. fbrIdToDisplay is provided (the actual FBR Invoice ID from API response)
     // This ensures "Print Invoice" button NEVER shows FBR ID
     const fbrId = includeFbrId && fbrIdToDisplay ? fbrIdToDisplay : null;
+    const fontSize = setting?.fontSize || 12;
+    const smallFontSize = Math.max(8, fontSize - 2);
 
     const items =
       invoice?.totals?.perItem
@@ -906,12 +943,12 @@ export default function BillingPage() {
         <head>
           <title>Invoice ${invoice.sale?.orderId || 'N/A'}</title>
         </head>
-        <body>
+        <body style="font-family: monospace; font-size: ${fontSize}px;">
           <div style="text-align:center;">
             ${logo}
             ${header}
           </div>
-          <div style="margin-top:8px;font-size:12px;">
+          <div style="margin-top:8px;font-size:${fontSize}px;">
             Order ID: ${invoice.sale?.orderId || 'N/A'}<br/>
             ${fbrId ? `FBR Invoice ID: ${fbrId}<br/>` : ''}
             Date: ${new Date(invoice.sale?.createdAt || Date.now()).toLocaleString()}<br/>
@@ -921,17 +958,18 @@ export default function BillingPage() {
         ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
         : ''}
           </div>
-          <table style="width:100%;font-size:12px;margin-top:8px;">
+          <table style="width:100%;font-size:${fontSize}px;margin-top:8px;">
             <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
             <tbody>${items}</tbody>
           </table>
-          <div style="margin-top:8px;font-size:12px;">
+          <div style="margin-top:8px;font-size:${fontSize}px;text-align:right;">
             Subtotal: Rs. ${Number(invoice.totals.subtotal).toFixed(2)}<br/>
             ${setting?.showDiscount !== false ? `Discount: Rs. ${(Number(invoice.totals.itemDiscountTotal) + Number(invoice.totals.cartDiscountTotal) + Number(invoice.totals.couponValue)).toFixed(2)}<br/>` : ''}
             ${setting?.showTax !== false ? `Tax: Rs. ${Number(invoice.totals.taxAmount).toFixed(2)}<br/>` : ''}
             <strong>Total: Rs. ${Number(invoice.totals.total).toFixed(2)}</strong>
           </div>
-          <div style="text-align:center;margin-top:12px;font-size:12px;">${footer}</div>
+          <div style="text-align:center;margin-top:12px;font-size:${fontSize}px;">${footer}</div>
+          <div style="text-align:center;margin-top:4px;font-size:${smallFontSize}px;border-top:1px dashed #ccc;padding-top:4px;">Developed by: AmanatPOS - +923344668996</div>
         </body>
       </html>
     `;
@@ -1202,7 +1240,7 @@ export default function BillingPage() {
             <h2 className="font-semibold">Products</h2>
             <span className="text-sm text-gray-600">{products.length} items</span>
           </div>
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex flex-col sm:flex-row gap-2 mb-2">
             <input
               type="text"
               placeholder="Search or scan..."
@@ -1222,11 +1260,52 @@ export default function BillingPage() {
                 loadProducts(term);
               }}
             />
+
+            {/* Sorting Controls */}
+            <div className="flex items-center gap-2">
+              <label className="flex items-center space-x-1 text-sm px-2 py-1 border rounded hover:bg-gray-50 bg-white cursor-pointer select-none" title="Show Favorites First">
+                <input
+                  type="checkbox"
+                  checked={favoritesFirst}
+                  onChange={(e) => setFavoritesFirst(e.target.checked)}
+                  className="rounded text-blue-600 focus:ring-blue-500"
+                />
+                <span>Favorites</span>
+              </label>
+
+              <div className="flex border rounded overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setSortBy('NAME')}
+                  className={`px-3 py-1 text-sm ${sortBy === 'NAME' ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                >
+                  Name
+                </button>
+                <div className="w-px bg-gray-200"></div>
+                <button
+                  type="button"
+                  onClick={() => setSortBy('LATEST')}
+                  className={`px-3 py-1 text-sm ${sortBy === 'LATEST' ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
+                >
+                  Latest
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSortAsc(!sortAsc)}
+                className="p-1 border rounded hover:bg-gray-50 text-gray-600"
+                title={sortAsc ? "Sort Ascending" : "Sort Descending"}
+              >
+                {sortAsc ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-            {products.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((p) => (
-              <div key={p.id} className="border rounded px-3 py-2 text-left">
-                <div className="font-medium">{p.name}</div>
+            {sortedProducts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((p) => (
+              <div key={p.id} className={`border rounded px-3 py-2 text-left relative ${p.isFavorite ? 'ring-1 ring-amber-400 bg-amber-50/30' : ''}`}>
+                {p.isFavorite && <span className="absolute top-1 right-1 text-amber-500 text-xs text-yellow-500">★</span>}
+                <div className="font-medium mr-3">{p.name}</div>
                 <div className="text-xs text-gray-500">{p.sku}</div>
                 <div className="text-sm text-gray-700">Rs. {Number(p.price).toFixed(2)}</div>
                 {p.variants && p.variants.length > 0 ? (
@@ -1356,7 +1435,12 @@ export default function BillingPage() {
               <div key={`${line.product.id}:${line.variant?.id || 'base'}`} className="border rounded px-2 py-2">
                 <div className="flex justify-between items-center">
                   <div>
-                    <div className="font-medium">{line.product.name}</div>
+                    <div className="font-medium">
+                      {line.product.name}
+                      <span className="ml-2 text-gray-600 font-normal text-sm">
+                        (Rs. {Number(line.variant ? line.variant.price : line.product.price).toFixed(2)})
+                      </span>
+                    </div>
                     <div className="text-xs text-gray-500">{line.product.sku}</div>
                     {line.variant && (
                       <div className="text-xs text-gray-600">

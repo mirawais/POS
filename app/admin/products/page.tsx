@@ -13,6 +13,7 @@ type Product = {
   costPrice?: number | null;
   stock: number;
   type: 'SIMPLE' | 'VARIANT' | 'COMPOSITE';
+  isFavorite?: boolean;
   category?: { id: string; name: string } | null;
   defaultTax?: { id: string; name: string; percent: number } | null;
   variants?: Array<{ id: string; name?: string | null; sku?: string | null; price: number; attributes?: any }>;
@@ -84,6 +85,7 @@ export default function AdminProductsPage() {
       stock: formData.get('stock') || 0,
       categoryId: formData.get('categoryId') || null,
       defaultTaxId: formData.get('defaultTaxId') || null,
+      isFavorite: formData.get('isFavorite') === 'on',
       type: productType,
     };
 
@@ -446,6 +448,16 @@ export default function AdminProductsPage() {
                 <option value="VARIANT">Variant Product (with attributes)</option>
                 <option value="COMPOSITE">Compound Product (from raw materials)</option>
               </select>
+            </label>
+
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                name="isFavorite"
+                className="w-4 h-4 rounded border-gray-300"
+                defaultChecked={editingProduct?.isFavorite}
+              />
+              <span className="text-sm text-gray-700 font-medium">Favorite Product</span>
             </label>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

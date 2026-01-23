@@ -41,7 +41,13 @@ export async function POST(req: Request) {
     showCustomer,
     customFields,
     taxMode,
+    fontSize,
   } = body;
+
+  // Validate font size
+  let validFontSize = Number(fontSize);
+  if (isNaN(validFontSize) || validFontSize < 8) validFontSize = 8;
+  if (validFontSize > 20) validFontSize = 20;
 
   // Validate and sort custom fields
   let processedCustomFields = null;
@@ -73,6 +79,7 @@ export async function POST(req: Request) {
       showCustomer: showCustomer !== false,
       customFields: processedCustomFields as any,
       taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
+      fontSize: validFontSize,
     },
     create: {
       clientId,
@@ -85,6 +92,7 @@ export async function POST(req: Request) {
       showCustomer: showCustomer !== false,
       customFields: processedCustomFields as any,
       taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
+      fontSize: validFontSize,
     },
   });
   return NextResponse.json(setting);

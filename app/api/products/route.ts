@@ -69,6 +69,7 @@ export async function POST(req: Request) {
     isActive = true,
     stock = 0,
     lowStockAt = null,
+    isFavorite = false,
     variants = [],
     rawMaterials = [],
   } = data ?? {};
@@ -143,6 +144,7 @@ export async function POST(req: Request) {
       clientId,
       type: type as any,
       isActive,
+      isFavorite,
       stock: stock !== undefined ? Number(stock) || 0 : 0,
       lowStockAt: lowStockAt !== undefined && lowStockAt !== null ? Number(lowStockAt) : null,
       variants: variantData.length ? { create: variantData as any } : undefined,
@@ -175,6 +177,7 @@ export async function PATCH(req: Request) {
   if (simpleFields.defaultTaxId !== undefined) updatePayload.defaultTaxId = simpleFields.defaultTaxId || null;
   if (simpleFields.type) updatePayload.type = simpleFields.type;
   if (simpleFields.isActive !== undefined) updatePayload.isActive = simpleFields.isActive;
+  if (simpleFields.isFavorite !== undefined) updatePayload.isFavorite = simpleFields.isFavorite;
   if (simpleFields.stock !== undefined) updatePayload.stock = Number(simpleFields.stock) || 0;
   if (simpleFields.lowStockAt !== undefined) updatePayload.lowStockAt = simpleFields.lowStockAt !== null ? Number(simpleFields.lowStockAt) : null;
 

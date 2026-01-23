@@ -90,6 +90,7 @@ model Product {
   stock        Int          @default(0)
   lowStockAt   Int?         @map("low_stock_at")
   isActive     Boolean      @default(true) @map("is_active")
+  isFavorite   Boolean      @default(false) @map("is_favorite")
   categoryId   String?      @map("category_id")
   category     Category?    @relation(fields: [categoryId], references: [id])
   defaultTaxId String?      @map("default_tax_id")
@@ -173,6 +174,7 @@ model InvoiceSetting {
   showCustomer   Boolean  @default(true) @map("show_customer")
   customFields   Json?    @map("custom_fields") // Array of {label, value, sortOrder}
   taxMode        String   @default("EXCLUSIVE") @map("tax_mode") // EXCLUSIVE or INCLUSIVE
+  fontSize       Int      @default(12) @map("font_size")
 }
 
 model FBRSetting {
