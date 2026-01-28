@@ -25,6 +25,7 @@ type Product = {
   stock?: number;
   variants?: ProductVariant[];
   isFavorite?: boolean;
+  isUnlimited?: boolean;
   createdAt?: string | Date;
 };
 
@@ -64,6 +65,10 @@ export default function BillingPage() {
   const [isLoadedCart, setIsLoadedCart] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  // UI Visibility State
+  const [showPriceDecimals, setShowPriceDecimals] = useState(true);
+  const [showCartDiscount, setShowCartDiscount] = useState(false);
+  const [showCouponInput, setShowCouponInput] = useState(false);
 
   // Sorting State
   const [favoritesFirst, setFavoritesFirst] = useState(true);
@@ -272,12 +277,14 @@ export default function BillingPage() {
         if (!r.ok) throw new Error('Failed');
         const data = await r.json();
         setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
+        setShowPriceDecimals(data.showPriceDecimals !== false);
         localStorage.setItem('cached_settings', JSON.stringify(data));
       } catch (e) {
         const cached = localStorage.getItem('cached_settings');
         if (cached) {
           const data = JSON.parse(cached);
           setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
+          setShowPriceDecimals(data.showPriceDecimals !== false);
         }
       }
     };
@@ -350,6 +357,11 @@ export default function BillingPage() {
       return combined;
     }
   };
+
+  const formatPrice = useCallback((amount: number | undefined | null) => {
+    if (amount === undefined || amount === null) return '0';
+    return showPriceDecimals ? Number(amount).toFixed(2) : Number(amount).toFixed(0);
+  }, [showPriceDecimals]);
 
   const totals = useMemo(() => {
     let subtotal = 0;
@@ -436,6 +448,7 @@ export default function BillingPage() {
 
   const getMaxStock = (product: Product, variant?: ProductVariant | null) => {
     if (product.type === 'SIMPLE') {
+      if (product.isUnlimited) return 999999;
       return product.stock || 0;
     }
     if (product.type === 'VARIANT' && variant) {
@@ -912,7 +925,7 @@ export default function BillingPage() {
     if (!invoice) return;
 
     // Use unique window name to allow multiple prints
-    const win = window.open('', `PRINT_${Date.now()}`, 'height=650,width=400');
+    const win = window.open('', `PRINT_${Date.now()}`, 'height=800,width=1200,menubar=0,toolbar=0,location=0,status=0');
     if (!win) return;
 
     const logo = setting?.logoUrl ? `<img src=\"${setting.logoUrl}\" style=\"max-width:150px;\" />` : '';
@@ -934,7 +947,7 @@ export default function BillingPage() {
             // Item total = Quantity × Unit Price only (no tax, no discount)
             const price = Number(i.price);
             const itemTotal = price * i.quantity;
-            return `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${price.toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
+            return `<tr><td>${i.productName || 'Unknown'}${i.variantName ? ` (${i.variantName})` : ''}</td><td>${i.quantity}</td><td>Rs. ${formatPrice(price)}</td><td>Rs. ${formatPrice(itemTotal)}</td></tr>`;
           }
         )
         .join('') || '';
@@ -963,10 +976,10 @@ export default function BillingPage() {
             <tbody>${items}</tbody>
           </table>
           <div style="margin-top:8px;font-size:${fontSize}px;text-align:right;">
-            Subtotal: Rs. ${Number(invoice.totals.subtotal).toFixed(2)}<br/>
-            ${setting?.showDiscount !== false ? `Discount: Rs. ${(Number(invoice.totals.itemDiscountTotal) + Number(invoice.totals.cartDiscountTotal) + Number(invoice.totals.couponValue)).toFixed(2)}<br/>` : ''}
-            ${setting?.showTax !== false ? `Tax: Rs. ${Number(invoice.totals.taxAmount).toFixed(2)}<br/>` : ''}
-            <strong>Total: Rs. ${Number(invoice.totals.total).toFixed(2)}</strong>
+            Subtotal: Rs. ${formatPrice(invoice.totals.subtotal)}<br/>
+            ${setting?.showDiscount !== false ? `Discount: Rs. ${formatPrice(Number(invoice.totals.itemDiscountTotal) + Number(invoice.totals.cartDiscountTotal) + Number(invoice.totals.couponValue))}<br/>` : ''}
+            ${setting?.showTax !== false ? `Tax: Rs. ${formatPrice(invoice.totals.taxAmount)}<br/>` : ''}
+            <strong>Total: Rs. ${formatPrice(invoice.totals.total)}</strong>
           </div>
           <div style="text-align:center;margin-top:12px;font-size:${fontSize}px;">${footer}</div>
           <div style="text-align:center;margin-top:4px;font-size:${smallFontSize}px;border-top:1px dashed #ccc;padding-top:4px;">Developed by: AmanatPOS - +923344668996</div>
@@ -1307,7 +1320,7 @@ export default function BillingPage() {
                 {p.isFavorite && <span className="absolute top-1 right-1 text-amber-500 text-xs text-yellow-500">★</span>}
                 <div className="font-medium mr-3">{p.name}</div>
                 <div className="text-xs text-gray-500">{p.sku}</div>
-                <div className="text-sm text-gray-700">Rs. {Number(p.price).toFixed(2)}</div>
+                <div className="text-sm text-gray-700">Rs. {formatPrice(p.price)}</div>
                 {p.variants && p.variants.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {p.variants.map((v) => {
@@ -1321,7 +1334,7 @@ export default function BillingPage() {
                           className="text-xs px-2 py-1 border rounded hover:border-blue-500"
                           onClick={() => addToCart(p, v)}
                         >
-                          {v.name || 'Variant'} {attrStr ? `(${attrStr})` : ''} - Rs. {Number(v.price).toFixed(2)}
+                          {v.name || 'Variant'} {attrStr ? `(${attrStr})` : ''} - Rs. {formatPrice(v.price)}
                         </button>
                       );
                     })}
@@ -1438,7 +1451,7 @@ export default function BillingPage() {
                     <div className="font-medium">
                       {line.product.name}
                       <span className="ml-2 text-gray-600 font-normal text-sm">
-                        (Rs. {Number(line.variant ? line.variant.price : line.product.price).toFixed(2)})
+                        (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
                       </span>
                     </div>
                     <div className="text-xs text-gray-500">{line.product.sku}</div>
@@ -1450,7 +1463,7 @@ export default function BillingPage() {
                             .map(([k, v]) => `${k}: ${v}`)
                             .join(', ')})`
                           : ''}{' '}
-                        @ Rs. {Number(line.variant.price).toFixed(2)}
+                        @ Rs. {formatPrice(line.variant.price)}
                       </div>
                     )}
                   </div>
@@ -1513,7 +1526,54 @@ export default function BillingPage() {
             </div>
             <div className="flex items-center gap-2">
               <label className="space-y-1 block flex-1">
-                <span className="text-sm text-gray-700">Cart discount</span>
+                <span className="text-sm text-gray-700">Tax</span>
+                <select className="w-full border rounded px-2 py-1 text-sm" value={taxId} onChange={(e) => setTaxId(e.target.value)}>
+                  {taxes.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.percent}%){t.isDefault ? ' • Default' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {/* Action Buttons Row */}
+            <div className="flex gap-2">
+              {!showCartDiscount && (
+                <button
+                  type="button"
+                  onClick={() => setShowCartDiscount(true)}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                >
+                  Add Discount
+                </button>
+              )}
+              {!showCouponInput && !validatedCoupon && (
+                <button
+                  type="button"
+                  onClick={() => setShowCouponInput(true)}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                >
+                  Apply Coupon
+                </button>
+              )}
+            </div>
+
+            {/* Hidden Inputs */}
+            {showCartDiscount && (
+              <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200 p-2 border rounded bg-gray-50">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-medium text-gray-700">Cart Discount</span>
+                  <button
+                    onClick={() => {
+                      setShowCartDiscount(false);
+                      setCartDiscountValue(0);
+                    }}
+                    className="text-xs text-red-600 hover:text-red-800"
+                  >
+                    Remove
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <select
                     className="border rounded px-2 py-1 text-sm"
@@ -1533,63 +1593,68 @@ export default function BillingPage() {
                     placeholder="Value"
                   />
                 </div>
-              </label>
-            </div>
-            <div className="space-y-1">
-              <label className="block text-sm text-gray-700">Coupon code</label>
-              <div className="flex gap-2">
-                <input
-                  className="flex-1 border rounded px-2 py-1 text-sm"
-                  value={couponCode}
-                  onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      applyCoupon();
-                    }
-                  }}
-                  placeholder="e.g. SAVE10"
-                />
-                <button
-                  type="button"
-                  onClick={applyCoupon}
-                  disabled={applyingCoupon || !couponCode.trim()}
-                  className="px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                  title="Apply coupon code"
-                >
-                  {applyingCoupon ? '...' : validatedCoupon ? '✓' : 'Apply'}
-                </button>
               </div>
-              {validatedCoupon && (
-                <div className="text-xs text-green-600 mt-1">
-                  ✓ {validatedCoupon.code} applied: {validatedCoupon.type === 'PERCENT' ? `${validatedCoupon.value}%` : `Rs. ${Number(validatedCoupon.value).toFixed(2)}`} off
+            )}
+
+            {(showCouponInput || validatedCoupon) && (
+              <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200 p-2 border rounded bg-gray-50">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-medium text-gray-700">Coupon Code</span>
+                  <button
+                    onClick={() => {
+                      setShowCouponInput(false);
+                      setCouponCode('');
+                      setValidatedCoupon(null);
+                    }}
+                    className="text-xs text-red-600 hover:text-red-800"
+                  >
+                    Remove
+                  </button>
                 </div>
-              )}
-            </div>
-            <label className="space-y-1 block">
-              <span className="text-sm text-gray-700">Tax</span>
-              <select className="w-full border rounded px-2 py-1 text-sm" value={taxId} onChange={(e) => setTaxId(e.target.value)}>
-                {taxes.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name} ({t.percent}%){t.isDefault ? ' • Default' : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 border rounded px-2 py-1 text-sm"
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        applyCoupon();
+                      }
+                    }}
+                    placeholder="e.g. SAVE10"
+                  />
+                  <button
+                    type="button"
+                    onClick={applyCoupon}
+                    disabled={applyingCoupon || !couponCode.trim()}
+                    className="px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                    title="Apply coupon code"
+                  >
+                    {applyingCoupon ? '...' : validatedCoupon ? '✓' : 'Apply'}
+                  </button>
+                </div>
+                {validatedCoupon && (
+                  <div className="text-xs text-green-600 mt-1">
+                    ✓ {validatedCoupon.code} applied: {validatedCoupon.type === 'PERCENT' ? `${validatedCoupon.value}%` : `Rs. ${formatPrice(validatedCoupon.value)}`} off
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="border-t pt-3 space-y-1 text-sm">
-            <div className="flex justify-between"><span>Subtotal</span><span>Rs. {totals.subtotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Item discounts</span><span>- Rs. {totals.itemDiscountTotal.toFixed(2)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Cart discount</span><span>- Rs. {totals.cartDiscountTotal.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span>Subtotal</span><span>Rs. {formatPrice(totals.subtotal)}</span></div>
+            <div className="flex justify-between text-amber-700"><span>Item discounts</span><span>- Rs. {formatPrice(totals.itemDiscountTotal)}</span></div>
+            <div className="flex justify-between text-amber-700"><span>Cart discount</span><span>- Rs. {formatPrice(totals.cartDiscountTotal)}</span></div>
             {totals.couponValue > 0 && (
               <div className="flex justify-between text-amber-700">
                 <span>Coupon {validatedCoupon ? `(${validatedCoupon.code})` : '(est.)'}</span>
-                <span>- Rs. {totals.couponValue.toFixed(2)}</span>
+                <span>- Rs. {formatPrice(totals.couponValue)}</span>
               </div>
             )}
-            <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ Rs. {totals.tax.toFixed(2)}</span></div>
-            <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>Rs. {totals.total.toFixed(2)}</span></div>
+            <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ Rs. {formatPrice(totals.tax)}</span></div>
+            <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>Rs. {formatPrice(totals.total)}</span></div>
           </div>
 
           <div className="flex gap-2">

@@ -42,6 +42,7 @@ export async function POST(req: Request) {
     customFields,
     taxMode,
     fontSize,
+    showPriceDecimals,
   } = body;
 
   // Validate font size
@@ -80,6 +81,7 @@ export async function POST(req: Request) {
       customFields: processedCustomFields as any,
       taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
       fontSize: validFontSize,
+      showPriceDecimals: showPriceDecimals !== false,
     },
     create: {
       clientId,
@@ -93,6 +95,7 @@ export async function POST(req: Request) {
       customFields: processedCustomFields as any,
       taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
       fontSize: validFontSize,
+      showPriceDecimals: showPriceDecimals !== false,
     },
   });
   return NextResponse.json(setting);

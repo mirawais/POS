@@ -243,10 +243,12 @@ export async function POST(req: Request) {
         });
 
         if (product.type === 'SIMPLE') {
-          await tx.product.update({
-            where: { id: product.id },
-            data: { stock: { decrement: line.quantity } },
-          });
+          if (!product.isUnlimited) {
+            await tx.product.update({
+              where: { id: product.id },
+              data: { stock: { decrement: line.quantity } },
+            });
+          }
         }
 
         if (product.type === 'VARIANT' && line.variantId) {

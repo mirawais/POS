@@ -88,6 +88,7 @@ model Product {
   price        Decimal      @db.Decimal(10,2)
   costPrice    Decimal?     @db.Decimal(10,2) @map("cost_price")
   stock        Int          @default(0)
+  isUnlimited  Boolean      @default(false) @map("is_unlimited")
   lowStockAt   Int?         @map("low_stock_at")
   isActive     Boolean      @default(true) @map("is_active")
   isFavorite   Boolean      @default(false) @map("is_favorite")
@@ -175,6 +176,7 @@ model InvoiceSetting {
   customFields   Json?    @map("custom_fields") // Array of {label, value, sortOrder}
   taxMode        String   @default("EXCLUSIVE") @map("tax_mode") // EXCLUSIVE or INCLUSIVE
   fontSize       Int      @default(12) @map("font_size")
+  showPriceDecimals Boolean @default(true) @map("show_price_decimals")
 }
 
 model FBRSetting {

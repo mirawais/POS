@@ -29,17 +29,22 @@ export async function GET(req: Request) {
   if (search) {
     where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }];
   }
-  const products = await prisma.product.findMany({
-    where,
-    include: {
-      category: true,
-      defaultTax: true,
-      variants: true,
-      materials: { include: { rawMaterial: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-  return NextResponse.json(products);
+  try {
+    const products = await prisma.product.findMany({
+      where,
+      include: {
+        category: true,
+        defaultTax: true,
+        variants: true,
+        materials: { include: { rawMaterial: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return NextResponse.json(products);
+  } catch (e: any) {
+    console.error('GET Products Error:', e);
+    return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -70,6 +75,7 @@ export async function POST(req: Request) {
     stock = 0,
     lowStockAt = null,
     isFavorite = false,
+    isUnlimited = false,
     variants = [],
     rawMaterials = [],
   } = data ?? {};
@@ -133,29 +139,43 @@ export async function POST(req: Request) {
         .filter((m) => m.rawMaterialId && !Number.isNaN(m.quantity))
       : [];
 
-  const created = await prisma.product.create({
-    data: {
-      name,
-      sku,
-      price: priceNum as any,
-      costPrice: costNum as any,
-      categoryId: categoryId || null,
-      defaultTaxId: defaultTaxId || null,
-      clientId,
-      type: type as any,
-      isActive,
-      isFavorite,
-      stock: stock !== undefined ? Number(stock) || 0 : 0,
-      lowStockAt: lowStockAt !== undefined && lowStockAt !== null ? Number(lowStockAt) : null,
-      variants: variantData.length ? { create: variantData as any } : undefined,
-      materials: materialData.length ? { create: materialData.map((m) => ({ ...m, clientId })) } : undefined,
-    },
-    include: {
-      variants: true,
-      materials: { include: { rawMaterial: true } },
-    },
-  });
-  return NextResponse.json(created, { status: 201 });
+  try {
+    const created = await prisma.product.create({
+      data: {
+        name,
+        sku,
+        price: priceNum as any,
+        costPrice: costNum as any,
+        categoryId: categoryId || null,
+        defaultTaxId: defaultTaxId || null,
+        clientId,
+        type: type as any,
+        isActive,
+        isFavorite,
+        isUnlimited,
+        stock: stock !== undefined ? Number(stock) || 0 : 0,
+        lowStockAt: lowStockAt !== undefined && lowStockAt !== null ? Number(lowStockAt) : null,
+        variants: variantData.length ? { create: variantData as any } : undefined,
+        materials: materialData.length ? { create: materialData.map((m) => ({ ...m, clientId })) } : undefined,
+      },
+      include: {
+        variants: true,
+        materials: { include: { rawMaterial: true } },
+      },
+    });
+    return NextResponse.json(created, { status: 201 });
+  } catch (e: any) {
+    console.error('Create Product Error:', e);
+    // Unique constraint violation
+    if (e.code === 'P2002') {
+      const target = e.meta?.target;
+      if (Array.isArray(target) && (target.includes('sku') || target.includes('clientId_sku_key'))) {
+        return NextResponse.json({ error: `Product with SKU "${sku}" already exists.` }, { status: 409 });
+      }
+      return NextResponse.json({ error: 'Duplicate entry found.' }, { status: 409 });
+    }
+    return NextResponse.json({ error: e.message || 'Failed to create product' }, { status: 500 });
+  }
 }
 
 export async function PATCH(req: Request) {
@@ -178,6 +198,7 @@ export async function PATCH(req: Request) {
   if (simpleFields.type) updatePayload.type = simpleFields.type;
   if (simpleFields.isActive !== undefined) updatePayload.isActive = simpleFields.isActive;
   if (simpleFields.isFavorite !== undefined) updatePayload.isFavorite = simpleFields.isFavorite;
+  if (simpleFields.isUnlimited !== undefined) updatePayload.isUnlimited = simpleFields.isUnlimited;
   if (simpleFields.stock !== undefined) updatePayload.stock = Number(simpleFields.stock) || 0;
   if (simpleFields.lowStockAt !== undefined) updatePayload.lowStockAt = simpleFields.lowStockAt !== null ? Number(simpleFields.lowStockAt) : null;
 
@@ -228,15 +249,27 @@ export async function PATCH(req: Request) {
     }
   }
 
-  const updated = await prisma.product.update({
-    where: { id },
-    data: updatePayload,
-    include: {
-      variants: true,
-      materials: { include: { rawMaterial: true } },
-    },
-  });
-  return NextResponse.json(updated);
+  try {
+    const updated = await prisma.product.update({
+      where: { id },
+      data: updatePayload,
+      include: {
+        variants: true,
+        materials: { include: { rawMaterial: true } },
+      },
+    });
+    return NextResponse.json(updated);
+  } catch (e: any) {
+    console.error('Update Product Error:', e);
+    if (e.code === 'P2002') {
+      const target = e.meta?.target;
+      if (Array.isArray(target) && (target.includes('sku') || target.includes('clientId_sku_key'))) {
+        return NextResponse.json({ error: `Product with SKU "${simpleFields.sku || 'provided'}" already exists.` }, { status: 409 });
+      }
+      return NextResponse.json({ error: 'Duplicate entry found.' }, { status: 409 });
+    }
+    return NextResponse.json({ error: e.message || 'Failed to update product' }, { status: 500 });
+  }
 }
 
 export async function DELETE(req: Request) {

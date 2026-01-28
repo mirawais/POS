@@ -14,6 +14,7 @@ type Product = {
   stock: number;
   type: 'SIMPLE' | 'VARIANT' | 'COMPOSITE';
   isFavorite?: boolean;
+  isUnlimited?: boolean;
   category?: { id: string; name: string } | null;
   defaultTax?: { id: string; name: string; percent: number } | null;
   variants?: Array<{ id: string; name?: string | null; sku?: string | null; price: number; attributes?: any }>;
@@ -60,7 +61,15 @@ export default function AdminProductsPage() {
       fetch('/api/raw-materials').then((r) => r.json()),
       fetch('/api/variant-attributes').then((r) => r.json()),
     ]);
-    setProducts(p);
+
+    if (Array.isArray(p)) {
+      setProducts(p);
+    } else {
+      console.error('Failed to load products:', p);
+      showError(p.error || 'Failed to load products');
+      setProducts([]);
+    }
+
     setCategories(c);
     setTaxes(t);
     setRawMaterials(rm);
@@ -86,6 +95,7 @@ export default function AdminProductsPage() {
       categoryId: formData.get('categoryId') || null,
       defaultTaxId: formData.get('defaultTaxId') || null,
       isFavorite: formData.get('isFavorite') === 'on',
+      isUnlimited: formData.get('isUnlimited') === 'on',
       type: productType,
     };
 
@@ -123,7 +133,7 @@ export default function AdminProductsPage() {
       setSelectedAttributes([]);
       setProductType('SIMPLE');
     } catch (err: any) {
-      alert(err.message || 'Failed to save product');
+      showError(err.message || 'Failed to save product');
     } finally {
       setLoading(false);
     }
@@ -136,7 +146,7 @@ export default function AdminProductsPage() {
       if (!res.ok) throw new Error('Failed to delete product');
       await loadData(search);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete product');
+      showError(err.message || 'Failed to delete product');
     }
   };
 
@@ -478,10 +488,32 @@ export default function AdminProductsPage() {
                 <input name="costPrice" type="number" step="0.01" min="0" className="w-full border rounded px-3 py-2" defaultValue={editingProduct?.costPrice ? Number(editingProduct.costPrice) : ''} />
               </label>
               {productType === 'SIMPLE' && (
-                <label className="space-y-1">
-                  <span className="text-sm text-gray-700">Stock</span>
-                  <input name="stock" type="number" min="0" className="w-full border rounded px-3 py-2" defaultValue={editingProduct?.stock || 0} />
-                </label>
+                <div className="space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-700">Stock</span>
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        name="isUnlimited"
+                        className="w-4 h-4 rounded border-gray-300"
+                        defaultChecked={editingProduct?.isUnlimited}
+                        onChange={(e) => {
+                          const stockInput = document.querySelector('input[name="stock"]') as HTMLInputElement;
+                          if (stockInput) stockInput.disabled = e.target.checked;
+                        }}
+                      />
+                      <span className="text-xs text-gray-600">Unlimited Quantity</span>
+                    </label>
+                  </div>
+                  <input
+                    name="stock"
+                    type="number"
+                    min="0"
+                    className="w-full border rounded px-3 py-2 disabled:bg-gray-100 disabled:text-gray-500"
+                    defaultValue={editingProduct?.stock || 0}
+                    disabled={editingProduct?.isUnlimited}
+                  />
+                </div>
               )}
               <label className="space-y-1">
                 <span className="text-sm text-gray-700">Category</span>
@@ -890,7 +922,11 @@ export default function AdminProductsPage() {
                       <div className="text-sm text-gray-600 mt-1">
                         Rs. {Number(p.price).toFixed(2)}
                         {p.costPrice && <span className="ml-2">Cost: Rs. {Number(p.costPrice).toFixed(2)}</span>}
-                        {p.type === 'SIMPLE' && <span className="ml-2">Stock: {p.stock}</span>}
+                        {p.type === 'SIMPLE' && (
+                          <span className="ml-2">
+                            Stock: {p.isUnlimited ? <span className="font-semibold text-green-600">Unlimited</span> : p.stock}
+                          </span>
+                        )}
                         {' • '}
                         {p.category?.name ?? 'General'}
                         {p.defaultTax && ` • Tax: ${p.defaultTax.name} (${p.defaultTax.percent}%)`}
