@@ -26,6 +26,15 @@ export async function GET(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const isManager = user.role === 'MANAGER';
+    const permissions = user.permissions || {};
+
+    // CASHIERS are allowed (maybe for their own history), but but we'll focus on MANAGER for now.
+    // Actually, let's allow ADMIN, SUPER_ADMIN, and MANAGER with view_reports.
+    // If a CASHIER calls this, they get their own client data, but we might want to restrict this further later.
+    if (user.role === 'MANAGER' && !permissions.view_reports) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     let clientId = user.clientId as string;
     const { searchParams } = new URL(req.url);
@@ -302,5 +311,50 @@ export async function POST(req: Request) {
   } catch (e: any) {
     console.error('sales error', e);
     return NextResponse.json({ error: e?.message ?? 'Checkout failed' }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const session = await auth();
+    const user = (session as any)?.user;
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const permissions = user.permissions || {};
+    if (user.role !== 'SUPER_ADMIN' && user.role !== 'ADMIN' && !permissions.delete_orders) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) return NextResponse.json({ error: 'Missing ID' }, { status: 400 });
+
+    // Use transaction to ensure cleanup
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete RefundItems
+      await tx.refundItem.deleteMany({
+        where: { refund: { saleId: id } }
+      });
+
+      // 2. Delete Refunds
+      await tx.refund.deleteMany({
+        where: { saleId: id }
+      });
+
+      // 3. Delete SaleItems
+      await tx.saleItem.deleteMany({
+        where: { saleId: id }
+      });
+
+      // 4. Finally delete the Sale
+      await tx.sale.delete({
+        where: { id }
+      });
+    });
+
+    return NextResponse.json({ message: 'Order deleted successfully' });
+  } catch (e: any) {
+    console.error('delete sale error', e);
+    return NextResponse.json({ error: e?.message ?? 'Delete failed' }, { status: 500 });
   }
 }

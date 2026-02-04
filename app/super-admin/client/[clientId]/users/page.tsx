@@ -12,7 +12,26 @@ export default function ClientUsersPage() {
     const [loading, setLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
     const [editingUser, setEditingUser] = useState<any | null>(null);
-    const [formData, setFormData] = useState({ name: '', email: '', password: '', role: 'CASHIER' });
+    const [formData, setFormData] = useState<{
+        name: string;
+        email: string;
+        password: string;
+        role: string;
+        permissions?: {
+            manage_products: boolean;
+            delete_products: boolean;
+            manage_inventory: boolean;
+            view_reports: boolean;
+            manage_coupons: boolean;
+            manage_fbr: boolean;
+            manage_receipt_settings: boolean;
+            manage_tax_settings: boolean;
+            manage_variant_settings: boolean;
+            manage_general_settings: boolean;
+            view_orders: boolean;
+            delete_orders: boolean;
+        }
+    }>({ name: '', email: '', password: '', role: 'CASHIER' });
     const [submitting, setSubmitting] = useState(false);
 
     const fetchUsers = async () => {
@@ -35,7 +54,22 @@ export default function ClientUsersPage() {
     }, [clientId]);
 
     const resetForm = () => {
-        setFormData({ name: '', email: '', password: '', role: 'CASHIER' });
+        setFormData({
+            name: '', email: '', password: '', role: 'CASHIER', permissions: {
+                manage_products: true,
+                delete_products: false,
+                manage_inventory: true,
+                view_reports: true,
+                manage_coupons: true,
+                manage_fbr: false,
+                manage_receipt_settings: false,
+                manage_tax_settings: false,
+                manage_variant_settings: false,
+                manage_general_settings: false,
+                view_orders: true,
+                delete_orders: false,
+            }
+        });
         setEditingUser(null);
         setShowForm(false);
     };
@@ -47,6 +81,20 @@ export default function ClientUsersPage() {
             email: user.email,
             password: '', // Leave blank to keep existing
             role: user.role,
+            permissions: user.permissions || {
+                manage_products: true,
+                delete_products: false,
+                manage_inventory: true,
+                view_reports: true,
+                manage_coupons: true,
+                manage_fbr: false,
+                manage_receipt_settings: false,
+                manage_tax_settings: false,
+                manage_variant_settings: false,
+                manage_general_settings: false,
+                view_orders: true,
+                delete_orders: false,
+            }
         });
         setShowForm(true);
     };
@@ -169,8 +217,153 @@ export default function ClientUsersPage() {
                             className="px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                         >
                             <option value="CASHIER">Cashier</option>
+                            <option value="MANAGER">Manager</option>
                             <option value="ADMIN">Admin</option>
                         </select>
+
+                        {formData.role === 'MANAGER' && (
+                            <div className="md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                <h4 className="font-semibold text-sm mb-3 text-gray-700">Manager Permissions</h4>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_products ?? true}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_products: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Manage Products (Add/Edit)
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.delete_products ?? false}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    delete_products: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Delete Products
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_inventory ?? true}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_inventory: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Manage Inventory
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_coupons ?? true}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_coupons: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Manage Coupons
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_fbr ?? false}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_fbr: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        FBR Integration
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_receipt_settings ?? false}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_receipt_settings: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Receipt Settings
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_tax_settings ?? false}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_tax_settings: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Tax Settings
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_variant_settings ?? false}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_variant_settings: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        Variant Attributes
+                                    </label>
+                                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                                        <input
+                                            type="checkbox"
+                                            checked={(formData as any).permissions?.manage_general_settings ?? false}
+                                            onChange={(e) => setFormData({
+                                                ...formData,
+                                                permissions: {
+                                                    ...(formData as any).permissions,
+                                                    manage_general_settings: e.target.checked
+                                                }
+                                            })}
+                                            className="rounded text-blue-600 focus:ring-blue-500"
+                                        />
+                                        General Settings
+                                    </label>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="md:col-span-2 flex justify-end gap-2 mt-2">
                             <button
                                 type="button"

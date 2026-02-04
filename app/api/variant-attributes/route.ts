@@ -28,7 +28,11 @@ export async function POST(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if ((user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isManager = user.role === 'MANAGER';
+    const permissions = user.permissions || {};
+    if (user.role !== 'ADMIN' && !(isManager && (permissions.manage_settings || permissions.manage_products))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const clientId = user.clientId as string;
 
     const body = await req.json();
@@ -65,7 +69,11 @@ export async function PATCH(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if ((user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isManager = user.role === 'MANAGER';
+    const permissions = user.permissions || {};
+    if (user.role !== 'ADMIN' && !(isManager && (permissions.manage_settings || permissions.manage_products))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
     const clientId = user.clientId as string;
 
     const body = await req.json();
@@ -101,7 +109,11 @@ export async function DELETE(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if ((user as any).role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isManager = user.role === 'MANAGER';
+    const permissions = user.permissions || {};
+    if (user.role !== 'ADMIN' && !(isManager && (permissions.manage_settings || permissions.manage_products))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');

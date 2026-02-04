@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import ChangePasswordForm from '@/components/auth/ChangePasswordForm';
 import { useToast } from '@/components/notifications/ToastContainer';
 
 export default function AdminSettingsPage() {
@@ -9,7 +8,7 @@ export default function AdminSettingsPage() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-                <p className="text-gray-500">Manage your profile and security preferences.</p>
+                <p className="text-gray-500">Manage your general preferences.</p>
             </div>
 
             <div className="grid gap-6">
@@ -18,8 +17,6 @@ export default function AdminSettingsPage() {
                     <h2 className="text-lg font-semibold mb-4">General Settings</h2>
                     <GeneralSettingsForm />
                 </div>
-
-                <ChangePasswordForm />
             </div>
         </div>
     );

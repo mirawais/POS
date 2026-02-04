@@ -40,7 +40,12 @@ export async function POST(req: Request) {
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = (session as any).user;
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_inventory)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   let clientId = user.clientId;
   const body = await req.json();
@@ -79,7 +84,12 @@ export async function PATCH(req: Request) {
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = (session as any).user;
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_inventory)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const body = await req.json();
   const { id, name, isDefault } = body ?? {};
@@ -125,7 +135,12 @@ export async function DELETE(req: Request) {
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = (session as any).user;
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_inventory)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');

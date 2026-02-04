@@ -44,6 +44,7 @@ enum Role {
   SUPER_ADMIN
   ADMIN
   CASHIER
+  MANAGER
 }
 
 model User {
@@ -52,6 +53,7 @@ model User {
   name      String?
   password  String
   role      Role     @default(CASHIER)
+  permissions Json?   @map("permissions") // Custom permissions for MANAGER role
   clientId  String?  @map("client_id")
   client    Client?  @relation(fields: [clientId], references: [id])
   sales     Sale[]

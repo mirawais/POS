@@ -1404,7 +1404,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={handleSaveCartClick}
-                className="text-sm px-3 py-1 border rounded hover:bg-gray-50"
+                className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                 disabled={loading || cart.length === 0}
               >
                 Save Cart
@@ -1412,7 +1412,7 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={() => setShowHeld((v) => !v)}
-                className="text-sm px-3 py-1 border rounded hover:bg-gray-50"
+                className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
               >
                 {showHeld ? 'Hide Saved' : 'Saved Carts'}
               </button>

@@ -9,7 +9,9 @@ export async function GET() {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isManager = user.role === 'MANAGER';
+    const permissions = user.permissions || {};
+    if (user.role !== 'ADMIN' && !(isManager && permissions.manage_fbr)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const clientId = user.clientId as string;
 
     let setting = await (prisma as any).fBRSetting.findUnique({
@@ -50,7 +52,9 @@ export async function POST(req: Request) {
     const session = await auth();
     const user = (session as any)?.user;
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    if (user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isManager = user.role === 'MANAGER';
+    const permissions = user.permissions || {};
+    if (user.role !== 'ADMIN' && !(isManager && permissions.manage_fbr)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     const clientId = user.clientId as string;
 
     const body = await req.json();
@@ -77,12 +81,12 @@ export async function POST(req: Request) {
 
     const setting = existing
       ? await (prisma as any).fBRSetting.update({
-          where: { clientId },
-          data: settingData,
-        })
+        where: { clientId },
+        data: settingData,
+      })
       : await (prisma as any).fBRSetting.create({
-          data: settingData,
-        });
+        data: settingData,
+      });
 
     // Return setting without full bearer token
     const safeSetting = {

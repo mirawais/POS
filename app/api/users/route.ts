@@ -35,6 +35,7 @@ export async function GET(req: Request) {
       email: true,
       name: true,
       role: true,
+      permissions: true,
       clientId: true,
       createdAt: true,
       updatedAt: true,
@@ -68,7 +69,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const { email, name, password, role = 'CASHIER' } = body ?? {};
+  const { email, name, password, role = 'CASHIER', permissions } = body ?? {};
 
   if (!email || typeof email !== 'string') return NextResponse.json({ error: 'Email is required' }, { status: 400 });
   if (!password || typeof password !== 'string' || password.length < 6) {
@@ -76,10 +77,9 @@ export async function POST(req: Request) {
   }
 
   // Role validation
-  // Client Admins can only create Admin or Cashier. Super Admin can potentially create anything, but usually Client Admin or Cashier.
-  // We'll restrict normal users to 'ADMIN' or 'CASHIER'.
-  if (!['ADMIN', 'CASHIER'].includes(role)) {
-    return NextResponse.json({ error: 'Role must be ADMIN or CASHIER' }, { status: 400 });
+  // Client Admins can only create Admin, Manager or Cashier.
+  if (!['ADMIN', 'CASHIER', 'MANAGER'].includes(role)) {
+    return NextResponse.json({ error: 'Role must be ADMIN, MANAGER or CASHIER' }, { status: 400 });
   }
 
   // Check for duplicate email
@@ -94,6 +94,7 @@ export async function POST(req: Request) {
       name: name || null,
       password: hashedPassword,
       role: role as any,
+      permissions: role === 'MANAGER' ? (permissions || {}) : undefined,
       clientId,
     },
     select: {
@@ -101,6 +102,7 @@ export async function POST(req: Request) {
       email: true,
       name: true,
       role: true,
+      permissions: true,
       clientId: true,
       createdAt: true,
       updatedAt: true,
@@ -118,7 +120,7 @@ export async function PATCH(req: Request) {
   if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json();
-  const { id, email, name, password, role } = body ?? {};
+  const { id, email, name, password, role, permissions } = body ?? {};
 
   if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
 
@@ -150,10 +152,23 @@ export async function PATCH(req: Request) {
     updateData.password = await bcrypt.hash(password, 10);
   }
   if (role !== undefined) {
-    if (!['ADMIN', 'CASHIER'].includes(role)) {
-      return NextResponse.json({ error: 'Role must be ADMIN or CASHIER' }, { status: 400 });
+    if (!['ADMIN', 'CASHIER', 'MANAGER'].includes(role)) {
+      return NextResponse.json({ error: 'Role must be ADMIN, MANAGER or CASHIER' }, { status: 400 });
     }
     updateData.role = role;
+  }
+
+  if (permissions !== undefined) {
+    // Only update permissions if role is MANAGER (or becoming MANAGER)
+    const targetRole = role || existing.role;
+    if (targetRole === 'MANAGER') {
+      updateData.permissions = permissions;
+    } else {
+      updateData.permissions = null; // Clear permissions if not manager
+    }
+  } else if (role === 'MANAGER' && !existing.permissions) {
+    // If switching to manager and no permissions provided, maybe set default? 
+    // For now, let frontend handle providing defaults.
   }
 
   const updated = await prisma.user.update({
@@ -164,6 +179,7 @@ export async function PATCH(req: Request) {
       email: true,
       name: true,
       role: true,
+      permissions: true,
       clientId: true,
       createdAt: true,
       updatedAt: true,

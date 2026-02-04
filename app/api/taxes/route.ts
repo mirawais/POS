@@ -18,7 +18,13 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const user = (session as any).user;
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_settings)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
   const clientId = (session as any).user.clientId as string;
   const body = await req.json();
   const { name, percent, isDefault = false, isActive = true } = body ?? {};
@@ -37,18 +43,24 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const user = (session as any).user;
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_settings)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
   const clientId = (session as any).user.clientId as string;
   const body = await req.json();
   const { id, name, percent, isActive, setDefault } = body ?? {};
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
-  
+
   // Verify tax belongs to client
   const existing = await prisma.taxSetting.findUnique({ where: { id } });
   if (!existing || existing.clientId !== clientId) {
     return NextResponse.json({ error: 'Tax not found' }, { status: 404 });
   }
-  
+
   if (setDefault) {
     await prisma.taxSetting.updateMany({ where: { clientId }, data: { isDefault: false } });
   }
@@ -68,9 +80,15 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const user = (session as any).user;
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_settings)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
   const clientId = (session as any).user.clientId as string;
-  
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID is required' }, { status: 400 });
@@ -86,7 +104,7 @@ export async function DELETE(req: Request) {
     const productsUsingTax = await prisma.product.count({
       where: { defaultTaxId: id },
     });
-    
+
     if (productsUsingTax > 0) {
       return NextResponse.json(
         { error: `Cannot delete tax. This tax is assigned to ${productsUsingTax} product(s). Please reassign or remove the tax from these products first.` },

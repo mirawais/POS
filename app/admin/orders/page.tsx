@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { AdminHeader } from '@/components/layout/AdminHeader';
+import { useSession } from 'next-auth/react';
+import { Trash2 } from 'lucide-react';
 
-export default function ReportsPage() {
+export default function OrdersPage() {
   const [sales, setSales] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +20,33 @@ export default function ReportsPage() {
   const [viewMode, setViewMode] = useState<'sales' | 'products' | 'customers'>('sales');
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
   const [isCashierDropdownOpen, setIsCashierDropdownOpen] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<any>(null);
+
+  const { data: session } = useSession();
+  const permissions = (session?.user as any)?.permissions || {};
+  const isSuperAdmin = session?.user?.role === 'SUPER_ADMIN';
+  const isAdmin = session?.user?.role === 'ADMIN';
 
   const handleViewModeChange = (mode: 'sales' | 'products' | 'customers') => {
     setViewMode(mode);
     setOrderIdFilter('');
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!orderToDelete) return;
+    try {
+      const res = await fetch(`/api/sales?id=${orderToDelete.id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete order');
+      }
+      setShowDeleteModal(false);
+      setOrderToDelete(null);
+      fetchSales();
+    } catch (err: any) {
+      alert(err.message);
+    }
   };
 
   const applyDateFilter = (filter: string) => {
@@ -317,11 +342,11 @@ export default function ReportsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminHeader title="Reports" />
+      <AdminHeader title="Orders" />
       <div className="p-6 space-y-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-2xl font-semibold">Sales Reports</h1>
+            <h1 className="text-2xl font-semibold">Orders</h1>
             <p className="mt-2 text-gray-600">View and export sales history with filters.</p>
           </div>
           <div className="flex flex-wrap gap-2 w-full md:w-auto bg-white border rounded p-1">
@@ -738,6 +763,19 @@ export default function ReportsPage() {
                       >
                         Print
                       </button>
+                      {(isSuperAdmin || isAdmin || permissions.delete_orders) && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOrderToDelete(sale);
+                            setShowDeleteModal(true);
+                          }}
+                          className="mb-2 ml-2 px-2 py-1 text-xs border rounded text-red-600 border-red-200 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-3 w-3 inline mr-1" />
+                          Delete
+                        </button>
+                      )}
                       <div className="font-semibold text-lg">Rs. {Number(sale.total).toFixed(2)}</div>
                       <div className="text-sm text-gray-600">
                         Subtotal: Rs. {Number(sale.subtotal).toFixed(2)}
@@ -880,6 +918,40 @@ export default function ReportsPage() {
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
+            <div className="flex items-center gap-3 text-red-600 mb-4">
+              <div className="p-2 bg-red-100 rounded-full">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <h3 className="text-lg font-bold">Delete Order?</h3>
+            </div>
+            <p className="text-gray-600 mb-6 font-sans">
+              Are you sure you want to delete order <strong>{orderToDelete?.orderId || orderToDelete?.id}</strong>? This action cannot be undone and will remove all related records.
+            </p>
+            <div className="flex justify-end gap-3 font-sans">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setOrderToDelete(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteOrder}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md shadow-sm transition-colors"
+              >
+                Delete Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

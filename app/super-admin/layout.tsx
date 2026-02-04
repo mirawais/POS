@@ -1,12 +1,11 @@
-'use client';
+﻿'use client';
 
-import { SessionProvider, signOut, useSession } from 'next-auth/react';
-import { LogOut, LayoutDashboard } from 'lucide-react';
+import { SessionProvider, useSession } from 'next-auth/react';
+import { LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
+import { UserProfileDropdown } from '@/components/layout/UserProfileDropdown';
 
 function SuperAdminNav() {
-    const { data: session } = useSession();
-
     return (
         <nav className="bg-slate-900 text-white p-4 shadow-md">
             <div className="container mx-auto flex justify-between items-center">
@@ -17,21 +16,13 @@ function SuperAdminNav() {
                     </div>
                     <div className="flex items-center gap-4 border-l border-slate-700 pl-6">
                         <Link href="/super-admin" className="hover:text-blue-400 text-sm font-medium transition-colors">Tenants</Link>
+                        <Link href="/super-admin/orders" className="hover:text-blue-400 text-sm font-medium transition-colors">Orders</Link>
                         <Link href="/super-admin/reports" className="hover:text-blue-400 text-sm font-medium transition-colors">Global Reports</Link>
                         <Link href="/super-admin/settings" className="hover:text-blue-400 text-sm font-medium transition-colors">Settings</Link>
                     </div>
                 </div>
                 <div className="flex items-center gap-4">
-                    <span className="text-sm text-slate-400">
-                        {session?.user?.email}
-                    </span>
-                    <button
-                        onClick={() => signOut({ callbackUrl: '/login' })}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 rounded text-sm transition-colors"
-                    >
-                        <LogOut className="h-4 w-4" />
-                        Logout
-                    </button>
+                    <UserProfileDropdown />
                 </div>
             </div>
         </nav>

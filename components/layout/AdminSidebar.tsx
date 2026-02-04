@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileText,
+  ShoppingCart,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -36,7 +37,6 @@ const menuGroups: MenuGroup[] = [
     title: 'Overview',
     items: [
       { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
     ],
   },
   {
@@ -51,6 +51,7 @@ const menuGroups: MenuGroup[] = [
   {
     title: 'Sales & Finance',
     items: [
+      { href: '/admin/orders', label: 'Orders', icon: ShoppingCart },
       { href: '/admin/settings/invoice', label: 'Receipt', icon: Receipt },
       { href: '/admin/coupons', label: 'Coupons', icon: Ticket },
       { href: '/admin/settings/tax', label: 'Taxes', icon: Calculator },
@@ -128,6 +129,31 @@ export function AdminSidebar() {
           {/* Menu Groups */}
           <nav className="flex-1 overflow-y-auto py-4">
             {menuGroups.map((group) => {
+              const isManager = session?.user?.role === 'MANAGER';
+              const permissions = (session?.user as any)?.permissions || {};
+
+              const filteredItems = group.items.filter(item => {
+                if (!isManager) return true;
+
+                // Permission Mapping
+                if (item.href === '/admin/dashboard') return true;
+                if (item.href === '/admin/reports') return permissions.view_reports;
+                if (item.href === '/admin/products') return permissions.manage_products;
+                if (item.href === '/admin/categories' || item.href === '/admin/raw-materials') return permissions.manage_inventory;
+                if (item.href === '/admin/settings/variant-attributes') return permissions.manage_variant_settings || permissions.manage_products;
+                if (item.href === '/admin/settings/invoice') return permissions.manage_receipt_settings;
+                if (item.href === '/admin/coupons') return permissions.manage_coupons;
+                if (item.href === '/admin/settings/tax') return permissions.manage_tax_settings;
+                if (item.href === '/admin/settings/fbr') return permissions.manage_fbr;
+                if (item.href === '/admin/users') return false; // Managers cannot manage users
+                if (item.href === '/admin/settings') return permissions.manage_general_settings;
+                if (item.href === '/admin/orders') return permissions.view_orders;
+
+                return false;
+              });
+
+              if (filteredItems.length === 0) return null;
+
               const isExpanded = expandedGroups.has(group.title);
               return (
                 <div key={group.title} className="mb-2">
@@ -144,7 +170,7 @@ export function AdminSidebar() {
                   </button>
                   {isExpanded && (
                     <div className="mt-1">
-                      {group.items.map((item) => {
+                      {filteredItems.map((item) => {
                         const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
                         const Icon = item.icon;
                         return (
@@ -188,4 +214,5 @@ export function AdminSidebar() {
     </>
   );
 }
+
 

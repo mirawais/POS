@@ -14,7 +14,7 @@ export default function GlobalReportsPage() {
     const [orderIdFilter, setOrderIdFilter] = useState('');
     const [expandedSale, setExpandedSale] = useState<string | null>(null);
     const [dateFilter, setDateFilter] = useState<string>('last7days');
-    const [summary, setSummary] = useState<{ totalSales: number; totalTax: number; totalDiscount: number; cashSales: number; cardSales: number; totalRefundAmount: number } | null>(null);
+    const [summary, setSummary] = useState<{ totalSales: number; totalTax: number; totalDiscount: number; totalCouponDiscount: number; cashSales: number; cardSales: number; totalRefundAmount: number; netSale: number } | null>(null);
     const [viewMode, setViewMode] = useState<'sales' | 'products'>('sales');
 
     const fetchClients = async () => {
@@ -87,8 +87,13 @@ export default function GlobalReportsPage() {
 
             // Calculate summary
             const totalSales = data.reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
+            const totalSubtotal = data.reduce((sum: number, sale: any) => sum + Number(sale.subtotal || 0), 0);
             const totalTax = data.reduce((sum: number, sale: any) => sum + Number(sale.tax), 0);
-            const totalDiscount = data.reduce((sum: number, sale: any) => sum + Number(sale.discount || 0), 0);
+
+            const totalDiscountRaw = data.reduce((sum: number, sale: any) => sum + Number(sale.discount || 0), 0);
+            const totalCouponDiscount = data.reduce((sum: number, sale: any) => sum + Number(sale.couponValue || 0), 0);
+            const totalDiscount = totalDiscountRaw - totalCouponDiscount;
+
             const cashSales = data.filter((sale: any) => sale.paymentMethod === 'CASH' || !sale.paymentMethod).reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
             const cardSales = data.filter((sale: any) => sale.paymentMethod === 'CARD').reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
 
@@ -97,7 +102,10 @@ export default function GlobalReportsPage() {
                 return sum + refundTotal;
             }, 0);
 
-            setSummary({ totalSales, totalTax, totalDiscount, cashSales, cardSales, totalRefundAmount });
+            // Net Sale = Total Sale - Manual Discount - Coupon Discount - Refund + Tax
+            const netSale = totalSales - totalDiscount - totalCouponDiscount - totalRefundAmount + totalTax;
+
+            setSummary({ totalSales, totalTax, totalDiscount, totalCouponDiscount, cashSales, cardSales, totalRefundAmount, netSale });
         } catch (err: any) {
             setError(err.message || 'An error occurred while fetching sales data');
         } finally {
@@ -235,12 +243,20 @@ export default function GlobalReportsPage() {
                             <div className="text-2xl font-bold text-blue-700">Rs. {summary.totalSales.toFixed(2)}</div>
                         </div>
                         <div>
+                            <div className="text-sm text-gray-600 font-bold">Net Sale</div>
+                            <div className="text-2xl font-bold text-green-700">Rs. {summary.netSale.toFixed(2)}</div>
+                        </div>
+                        <div>
                             <div className="text-sm text-gray-600">Total Tax</div>
                             <div className="text-2xl font-bold text-green-700">Rs. {summary.totalTax.toFixed(2)}</div>
                         </div>
                         <div>
                             <div className="text-sm text-gray-600">Total Discount</div>
                             <div className="text-2xl font-bold text-red-700">Rs. {summary.totalDiscount.toFixed(2)}</div>
+                        </div>
+                        <div>
+                            <div className="text-sm text-gray-600">Coupon Discount</div>
+                            <div className="text-2xl font-bold text-red-700">Rs. {summary.totalCouponDiscount.toFixed(2)}</div>
                         </div>
                         <div>
                             <div className="text-sm text-gray-600">Cash Sales</div>

@@ -27,8 +27,13 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const session = await auth();
-  if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const user = (session as any).user;
+  const isManager = user.role === 'MANAGER';
+  const permissions = user.permissions || {};
+
+  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_settings)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
   const clientId = (session as any).user.clientId as string;
   const body = await req.json();
   const {

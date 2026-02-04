@@ -52,7 +52,12 @@ export async function POST(req: Request) {
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = (session as any).user;
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (!['ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  // Manager Permission Check
+  if (user.role === 'MANAGER' && !user.permissions?.manage_products) {
+    return NextResponse.json({ error: 'Forbidden: Insufficient permissions' }, { status: 403 });
+  }
 
   let clientId = user.clientId;
   const data = await req.json();
@@ -181,8 +186,16 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  const clientId = (session as any).user.clientId as string;
+
+  const user = (session as any).user;
+  if (!['ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  // Manager Permission Check
+  if (user.role === 'MANAGER' && !user.permissions?.manage_products) {
+    return NextResponse.json({ error: 'Forbidden: Insufficient permissions' }, { status: 403 });
+  }
+
+  const clientId = user.clientId as string;
   const data = await req.json();
   const { id, ...updateData } = data ?? {};
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
@@ -275,7 +288,15 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   const session = await auth();
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session as any).user.role !== 'ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  const user = (session as any).user;
+  if (!['ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
+  // Manager Permission Check
+  if (user.role === 'MANAGER' && !user.permissions?.delete_products) {
+    return NextResponse.json({ error: 'Forbidden: Insufficient permissions' }, { status: 403 });
+  }
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });

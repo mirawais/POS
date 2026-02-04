@@ -54,25 +54,28 @@ export const authConfig: NextAuthOptions = {
           name: user.name ?? undefined,
           role: user.role,
           clientId: user.clientId,
-        } as any;
+          permissions: user.permissions,
+        };
       },
     }),
   ],
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.id = (user as any).id;
-        // Ensure role is stored as a string for consistent comparison
-        token.role = String((user as any).role);
-        token.clientId = (user as any).clientId;
+        token.id = user.id;
+        token.role = String(user.role);
+        token.clientId = user.clientId;
+        token.permissions = user.permissions;
       }
       return token;
     },
     async session({ session, token }) {
-      (session as any).user.id = token.id;
-      // Ensure role is a string for consistent comparison
-      (session as any).user.role = String(token.role);
-      (session as any).user.clientId = token.clientId;
+      if (session.user) {
+        session.user.id = token.id;
+        session.user.role = String(token.role);
+        session.user.clientId = token.clientId;
+        session.user.permissions = token.permissions;
+      }
       return session;
     },
   },

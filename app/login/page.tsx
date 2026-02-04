@@ -33,6 +33,8 @@ export default function LoginPage() {
             window.location.href = '/super-admin';
           } else if (userRole === 'ADMIN') {
             window.location.href = '/admin/dashboard';
+          } else if (userRole === 'MANAGER') {
+            window.location.href = '/admin/dashboard';
           } else if (userRole === 'CASHIER') {
             window.location.href = '/cashier/billing';
           } else {

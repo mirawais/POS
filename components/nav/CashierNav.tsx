@@ -21,7 +21,7 @@ export function CashierNav() {
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <header className="bg-white border-b relative">
+    <header className="bg-white border-b relative print:hidden">
       <div className="flex items-center justify-between px-4 py-3">
         <div className="flex items-center gap-4">
           <div className="font-bold text-xl text-blue-900">Amanat POS</div>

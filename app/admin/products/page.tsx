@@ -1,5 +1,6 @@
 'use client';
 
+import { useSession } from 'next-auth/react';
 import { useEffect, useState, useMemo } from 'react';
 import { useToast } from '@/components/notifications/ToastContainer';
 import { AdminHeader } from '@/components/layout/AdminHeader';
@@ -27,6 +28,11 @@ type RawMaterial = { id: string; name: string; sku: string; unit?: string | null
 type VariantAttribute = { id: string; name: string; values: string[] };
 
 export default function AdminProductsPage() {
+  const { data: session } = useSession();
+  const user = session?.user as any;
+  const canDelete = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.permissions?.delete_products);
+  const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.permissions?.manage_products);
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [taxes, setTaxes] = useState<Tax[]>([]);
@@ -349,7 +355,7 @@ export default function AdminProductsPage() {
             <p className="mt-2 text-gray-600">Manage Simple, Variant, and Compound products.</p>
           </div>
           <div className="flex gap-2">
-            {selectedProducts.length > 0 && (
+            {selectedProducts.length > 0 && canDelete && (
               <button
                 onClick={() => setShowDeleteModal(true)}
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
@@ -357,12 +363,16 @@ export default function AdminProductsPage() {
                 Delete Selected ({selectedProducts.length})
               </button>
             )}
-            <button onClick={() => { setShowBulkUpload(!showBulkUpload); setShowForm(false); }} className="px-4 py-2 bg-green-600 text-white rounded">
-              {showBulkUpload ? 'Cancel Upload' : 'Bulk Upload CSV'}
-            </button>
-            <button onClick={() => { setShowForm(!showForm); setEditingProduct(null); setSelectedMaterials([]); setVariants([]); setSelectedAttributes([]); setProductType('SIMPLE'); setShowBulkUpload(false); }} className="px-4 py-2 bg-blue-600 text-white rounded">
-              {showForm ? 'Cancel' : 'Add Product'}
-            </button>
+            {canManage && (
+              <>
+                <button onClick={() => { setShowBulkUpload(!showBulkUpload); setShowForm(false); }} className="px-4 py-2 bg-green-600 text-white rounded">
+                  {showBulkUpload ? 'Cancel Upload' : 'Bulk Upload CSV'}
+                </button>
+                <button onClick={() => { setShowForm(!showForm); setEditingProduct(null); setSelectedMaterials([]); setVariants([]); setSelectedAttributes([]); setProductType('SIMPLE'); setShowBulkUpload(false); }} className="px-4 py-2 bg-blue-600 text-white rounded">
+                  {showForm ? 'Cancel' : 'Add Product'}
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -956,12 +966,16 @@ export default function AdminProductsPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 ml-4">
-                    <button onClick={() => handleEdit(p)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">
-                      Edit
-                    </button>
-                    <button onClick={() => handleDelete(p.id)} className="text-sm px-2 py-1 border rounded text-red-600 hover:bg-red-50">
-                      Delete
-                    </button>
+                    {canManage && (
+                      <button onClick={() => handleEdit(p)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">
+                        Edit
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button onClick={() => handleDelete(p.id)} className="text-sm px-2 py-1 border rounded text-red-600 hover:bg-red-50">
+                        Delete
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
