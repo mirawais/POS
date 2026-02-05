@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { AdminHeader } from '@/components/layout/AdminHeader';
+import { useToast } from '@/components/notifications/ToastContainer';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 type RawMaterial = {
   id: string;
@@ -18,6 +21,13 @@ export default function AdminRawMaterialsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingMaterial, setEditingMaterial] = useState<RawMaterial | null>(null);
   const [search, setSearch] = useState('');
+  const [materialToDelete, setMaterialToDelete] = useState<RawMaterial | null>(null);
+  const { data: session } = useSession();
+  const { showSuccess, showError } = useToast();
+
+  const user = session?.user as any;
+  const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.permissions?.manage_raw_materials);
+  const canDelete = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.permissions?.delete_raw_materials);
 
   useEffect(() => {
     loadData();
@@ -60,20 +70,26 @@ export default function AdminRawMaterialsPage() {
       setShowForm(false);
       setEditingMaterial(null);
     } catch (err: any) {
-      alert(err.message || 'Failed to save raw material');
+      showError(err.message || 'Failed to save raw material');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this raw material?')) return;
+  const handleDelete = (material: RawMaterial) => {
+    setMaterialToDelete(material);
+  };
+
+  const confirmDelete = async () => {
+    if (!materialToDelete) return;
     try {
-      const res = await fetch(`/api/raw-materials?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/raw-materials?id=${materialToDelete.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete raw material');
+      showSuccess('Raw material deleted successfully');
+      setMaterialToDelete(null);
       await loadData(search);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete raw material');
+      showError(err.message || 'Failed to delete raw material');
     }
   };
 
@@ -91,15 +107,17 @@ export default function AdminRawMaterialsPage() {
             <h1 className="text-2xl font-semibold">Raw Materials</h1>
             <p className="mt-2 text-gray-600">Manage raw materials/ingredients for compound products.</p>
           </div>
-          <button
-            onClick={() => {
-              setShowForm(!showForm);
-              setEditingMaterial(null);
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded"
-          >
-            {showForm ? 'Cancel' : 'Add Raw Material'}
-          </button>
+          {canManage && (
+            <button
+              onClick={() => {
+                setShowForm(!showForm);
+                setEditingMaterial(null);
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded"
+            >
+              {showForm ? 'Cancel' : 'Add Raw Material'}
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -172,18 +190,32 @@ export default function AdminRawMaterialsPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => handleEdit(m)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">
-                    Edit
-                  </button>
-                  <button onClick={() => handleDelete(m.id)} className="text-sm px-2 py-1 border rounded text-red-600 hover:bg-red-50">
-                    Delete
-                  </button>
+                  {canManage && (
+                    <button onClick={() => handleEdit(m)} className="text-sm px-2 py-1 border rounded hover:bg-gray-50">
+                      Edit
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button onClick={() => handleDelete(m)} className="text-sm px-2 py-1 border rounded text-red-600 hover:bg-red-50">
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
             {materials.length === 0 && <p className="text-sm text-gray-600">No raw materials found.</p>}
           </div>
         </div>
+
+        <ConfirmationModal
+          isOpen={!!materialToDelete}
+          title="Delete Raw Material"
+          message={`Are you sure you want to delete "${materialToDelete?.name}"? This action cannot be undone.`}
+          onConfirm={confirmDelete}
+          onCancel={() => setMaterialToDelete(null)}
+          confirmVariant="danger"
+          confirmText="Delete"
+        />
       </div>
     </div >
   );

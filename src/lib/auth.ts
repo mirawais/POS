@@ -60,12 +60,36 @@ export const authConfig: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
+        // Initial sign in
         token.id = user.id;
         token.role = String(user.role);
         token.clientId = user.clientId;
         token.permissions = user.permissions;
+      } else if (token.id) {
+        // Subsequent calls - refresh permissions from DB
+        // This ensures Manager permissions are updated without re-login
+        try {
+          const freshUser = await prisma.user.findUnique({
+            where: { id: token.id as string },
+            select: {
+              permissions: true,
+              role: true,
+              clientId: true,
+              name: true
+            }
+          });
+
+          if (freshUser) {
+            token.permissions = freshUser.permissions;
+            token.role = String(freshUser.role);
+            token.clientId = freshUser.clientId;
+            if (freshUser.name) token.name = freshUser.name;
+          }
+        } catch (error) {
+          console.error("Error refreshing user permissions:", error);
+        }
       }
       return token;
     },

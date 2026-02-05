@@ -28,7 +28,7 @@ export async function POST(req: Request) {
   const isManager = user.role === 'MANAGER';
   const permissions = user.permissions || {};
 
-  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_inventory)) {
+  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_raw_materials)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   const clientId = (session as any).user.clientId as string;
@@ -56,7 +56,7 @@ export async function PATCH(req: Request) {
   const isManager = user.role === 'MANAGER';
   const permissions = user.permissions || {};
 
-  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_inventory)) {
+  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_raw_materials)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   const clientId = (session as any).user.clientId as string;
@@ -84,7 +84,7 @@ export async function DELETE(req: Request) {
   const isManager = user.role === 'MANAGER';
   const permissions = user.permissions || {};
 
-  if (user.role !== 'ADMIN' && !(isManager && permissions.manage_inventory)) {
+  if (user.role !== 'ADMIN' && !(isManager && permissions.delete_raw_materials)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
   const { searchParams } = new URL(req.url);

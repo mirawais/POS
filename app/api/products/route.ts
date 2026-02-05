@@ -26,6 +26,9 @@ export async function GET(req: Request) {
     where.clientId = clientId;
   }
 
+  // Filter out soft-deleted products
+  where.isActive = true;
+
   if (search) {
     where.OR = [{ name: { contains: search, mode: 'insensitive' } }, { sku: { contains: search, mode: 'insensitive' } }];
   }
@@ -300,6 +303,19 @@ export async function DELETE(req: Request) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 });
-  await prisma.product.delete({ where: { id } });
-  return NextResponse.json({ ok: true });
+
+  // Soft Delete: Set isActive to false
+  try {
+    const updated = await prisma.product.update({
+      where: { id },
+      data: {
+        isActive: false,
+        isFavorite: false // Also remove from favorites
+      },
+    });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error('Delete Product Error:', e);
+    return NextResponse.json({ error: e.message || 'Failed to delete product' }, { status: 500 });
+  }
 }

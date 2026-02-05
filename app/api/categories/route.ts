@@ -43,7 +43,7 @@ export async function POST(req: Request) {
   const isManager = user.role === 'MANAGER';
   const permissions = user.permissions || {};
 
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_inventory)) {
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_categories)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -87,7 +87,7 @@ export async function PATCH(req: Request) {
   const isManager = user.role === 'MANAGER';
   const permissions = user.permissions || {};
 
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_inventory)) {
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_categories)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
@@ -138,7 +138,7 @@ export async function DELETE(req: Request) {
   const isManager = user.role === 'MANAGER';
   const permissions = user.permissions || {};
 
-  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.manage_inventory)) {
+  if (!['ADMIN', 'SUPER_ADMIN'].includes(user.role) && !(isManager && permissions.delete_categories)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

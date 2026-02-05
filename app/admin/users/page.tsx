@@ -6,7 +6,12 @@ import { AdminHeader } from '@/components/layout/AdminHeader';
 type p = {
   manage_products: boolean;
   delete_products: boolean;
-  manage_inventory: boolean;
+  manage_inventory: boolean; // Kept for backward compatibility or general inventory
+  manage_categories: boolean;
+  delete_categories: boolean;
+  manage_raw_materials: boolean;
+  delete_raw_materials: boolean;
+  delete_variant_attributes: boolean;
   view_reports: boolean;
   manage_coupons: boolean;
   manage_fbr: boolean;
@@ -33,6 +38,26 @@ export default function AdminUsersPage() {
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const defaultPermissions: p = {
+    manage_products: true,
+    delete_products: false,
+    manage_inventory: true,
+    manage_categories: true,
+    delete_categories: false,
+    manage_raw_materials: true,
+    delete_raw_materials: false,
+    delete_variant_attributes: false,
+    view_reports: true,
+    manage_coupons: true,
+    manage_fbr: false,
+    manage_receipt_settings: false,
+    manage_tax_settings: false,
+    manage_variant_settings: false,
+    manage_general_settings: false,
+    view_orders: true,
+    delete_orders: false,
+  };
+
   const [formData, setFormData] = useState<{
     email: string;
     name: string;
@@ -44,20 +69,7 @@ export default function AdminUsersPage() {
     name: '',
     password: '',
     role: 'CASHIER',
-    permissions: {
-      manage_products: true,
-      delete_products: false,
-      manage_inventory: true,
-      view_reports: true,
-      manage_coupons: true,
-      manage_fbr: false,
-      manage_receipt_settings: false,
-      manage_tax_settings: false,
-      manage_variant_settings: false,
-      manage_general_settings: false,
-      view_orders: true,
-      delete_orders: false,
-    }
+    permissions: { ...defaultPermissions }
   });
   const [message, setMessage] = useState<string | null>(null);
 
@@ -85,20 +97,7 @@ export default function AdminUsersPage() {
       name: '',
       password: '',
       role: 'CASHIER',
-      permissions: {
-        manage_products: true,
-        delete_products: false,
-        manage_inventory: true,
-        view_reports: true,
-        manage_coupons: true,
-        manage_fbr: false,
-        manage_receipt_settings: false,
-        manage_tax_settings: false,
-        manage_variant_settings: false,
-        manage_general_settings: false,
-        view_orders: true,
-        delete_orders: false,
-      }
+      permissions: { ...defaultPermissions }
     });
     setEditingUser(null);
     setShowForm(false);
@@ -106,25 +105,17 @@ export default function AdminUsersPage() {
 
   const handleEdit = (user: User) => {
     setEditingUser(user);
+    // Merge existing permissions with defaults to ensure all keys are present
+    const mergedPermissions = user.permissions
+      ? { ...defaultPermissions, ...user.permissions }
+      : { ...defaultPermissions };
+
     setFormData({
       email: user.email,
       name: user.name || '',
       password: '', // Don't pre-fill password
       role: user.role,
-      permissions: user.permissions || {
-        manage_products: true,
-        delete_products: false,
-        manage_inventory: true,
-        view_reports: true,
-        manage_coupons: true,
-        manage_fbr: false,
-        manage_receipt_settings: false,
-        manage_tax_settings: false,
-        manage_variant_settings: false,
-        manage_general_settings: false,
-        view_orders: true,
-        delete_orders: false,
-      }
+      permissions: mergedPermissions
     });
     setShowForm(true);
   };
@@ -300,31 +291,92 @@ export default function AdminUsersPage() {
                       />
                       Delete Products
                     </label>
+                    {/* Categories */}
                     <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
                       <input
                         type="checkbox"
-                        checked={formData.permissions?.manage_inventory ?? true}
+                        checked={formData.permissions?.manage_categories ?? true}
                         onChange={(e) => setFormData({
                           ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            manage_inventory: e.target.checked
-                          }
+                          permissions: { ...(formData.permissions!), manage_categories: e.target.checked }
                         })}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
-                      Manage Inventory
+                      Manage Categories
                     </label>
+                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions?.delete_categories ?? false}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          permissions: { ...(formData.permissions!), delete_categories: e.target.checked }
+                        })}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      Delete Categories
+                    </label>
+
+                    {/* Raw Materials */}
+                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions?.manage_raw_materials ?? true}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          permissions: { ...(formData.permissions!), manage_raw_materials: e.target.checked }
+                        })}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      Manage Raw Materials
+                    </label>
+                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions?.delete_raw_materials ?? false}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          permissions: { ...(formData.permissions!), delete_raw_materials: e.target.checked }
+                        })}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      Delete Raw Materials
+                    </label>
+
+                    {/* Variant Attributes */}
+                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions?.manage_variant_settings ?? false}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          permissions: { ...(formData.permissions!), manage_variant_settings: e.target.checked }
+                        })}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      Manage Variant Attributes
+                    </label>
+                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={formData.permissions?.delete_variant_attributes ?? false}
+                        onChange={(e) => setFormData({
+                          ...formData,
+                          permissions: { ...(formData.permissions!), delete_variant_attributes: e.target.checked }
+                        })}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      Delete Variant Attributes
+                    </label>
+
+                    {/* Restored checkboxes */}
                     <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
                       <input
                         type="checkbox"
                         checked={formData.permissions?.view_reports ?? true}
                         onChange={(e) => setFormData({
                           ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            view_reports: e.target.checked
-                          }
+                          permissions: { ...(formData.permissions!), view_reports: e.target.checked }
                         })}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
@@ -336,10 +388,7 @@ export default function AdminUsersPage() {
                         checked={formData.permissions?.manage_coupons ?? true}
                         onChange={(e) => setFormData({
                           ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            manage_coupons: e.target.checked
-                          }
+                          permissions: { ...(formData.permissions!), manage_coupons: e.target.checked }
                         })}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
@@ -351,10 +400,7 @@ export default function AdminUsersPage() {
                         checked={formData.permissions?.manage_fbr ?? false}
                         onChange={(e) => setFormData({
                           ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            manage_fbr: e.target.checked
-                          }
+                          permissions: { ...(formData.permissions!), manage_fbr: e.target.checked }
                         })}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
@@ -366,10 +412,7 @@ export default function AdminUsersPage() {
                         checked={formData.permissions?.manage_receipt_settings ?? false}
                         onChange={(e) => setFormData({
                           ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            manage_receipt_settings: e.target.checked
-                          }
+                          permissions: { ...(formData.permissions!), manage_receipt_settings: e.target.checked }
                         })}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
@@ -381,29 +424,11 @@ export default function AdminUsersPage() {
                         checked={formData.permissions?.manage_tax_settings ?? false}
                         onChange={(e) => setFormData({
                           ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            manage_tax_settings: e.target.checked
-                          }
+                          permissions: { ...(formData.permissions!), manage_tax_settings: e.target.checked }
                         })}
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
                       Tax Settings
-                    </label>
-                    <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
-                      <input
-                        type="checkbox"
-                        checked={formData.permissions?.manage_variant_settings ?? false}
-                        onChange={(e) => setFormData({
-                          ...formData,
-                          permissions: {
-                            ...(formData.permissions!),
-                            manage_variant_settings: e.target.checked
-                          }
-                        })}
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-                      Variant Attributes
                     </label>
                     <label className="flex items-center gap-2 text-sm bg-white p-2 rounded border cursor-pointer hover:bg-gray-50">
                       <input

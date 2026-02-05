@@ -37,6 +37,7 @@ const menuGroups: MenuGroup[] = [
     title: 'Overview',
     items: [
       { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
     ],
   },
   {
@@ -139,7 +140,8 @@ export function AdminSidebar() {
                 if (item.href === '/admin/dashboard') return true;
                 if (item.href === '/admin/reports') return permissions.view_reports;
                 if (item.href === '/admin/products') return permissions.manage_products;
-                if (item.href === '/admin/categories' || item.href === '/admin/raw-materials') return permissions.manage_inventory;
+                if (item.href === '/admin/categories') return permissions.manage_categories;
+                if (item.href === '/admin/raw-materials') return permissions.manage_raw_materials;
                 if (item.href === '/admin/settings/variant-attributes') return permissions.manage_variant_settings || permissions.manage_products;
                 if (item.href === '/admin/settings/invoice') return permissions.manage_receipt_settings;
                 if (item.href === '/admin/coupons') return permissions.manage_coupons;

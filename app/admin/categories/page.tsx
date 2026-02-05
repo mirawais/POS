@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { AdminHeader } from '@/components/layout/AdminHeader';
 import { useToast } from '@/components/notifications/ToastContainer';
 import ConfirmationModal from '@/components/ConfirmationModal';
@@ -22,7 +23,13 @@ export default function AdminCategoriesPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+  const { data: session } = useSession();
   const { showSuccess, showError } = useToast();
+
+  const user = session?.user as any;
+  const canManage = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.permissions?.manage_categories);
+  const canDelete = user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN' || (user?.role === 'MANAGER' && user?.permissions?.delete_categories);
 
   useEffect(() => {
     loadData();
@@ -62,14 +69,20 @@ export default function AdminCategoriesPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
+  const handleDelete = (category: Category) => {
+    setCategoryToDelete(category);
+  };
+
+  const confirmDelete = async () => {
+    if (!categoryToDelete) return;
     try {
-      const res = await fetch(`/api/categories?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/categories?id=${categoryToDelete.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete category');
+      showSuccess('Category deleted successfully');
+      setCategoryToDelete(null);
       await loadData(search);
     } catch (err: any) {
-      alert(err.message || 'Failed to delete category');
+      showError(err.message || 'Failed to delete category');
     }
   };
 
@@ -209,7 +222,7 @@ export default function AdminCategoriesPage() {
             />
           </div>
           <div className="flex gap-2">
-            {selectedCategories.length > 0 && (
+            {selectedCategories.length > 0 && canDelete && (
               <button
                 onClick={() => setShowDeleteModal(true)}
                 className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 whitespace-nowrap"
@@ -217,12 +230,14 @@ export default function AdminCategoriesPage() {
                 Delete Selected ({selectedCategories.length})
               </button>
             )}
-            <button
-              onClick={() => setShowBulkUpload(!showBulkUpload)}
-              className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 whitespace-nowrap"
-            >
-              {showBulkUpload ? 'Cancel Upload' : 'Bulk Upload CSV'}
-            </button>
+            {canManage && (
+              <button
+                onClick={() => setShowBulkUpload(!showBulkUpload)}
+                className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 whitespace-nowrap"
+              >
+                {showBulkUpload ? 'Cancel Upload' : 'Bulk Upload CSV'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -262,49 +277,51 @@ export default function AdminCategoriesPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-3">
-          <h2 className="font-semibold">{editingCategory ? 'Edit Category' : 'Add Category'}</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <label className="space-y-1">
-              <span className="text-sm text-gray-700">Name *</span>
-              <input
-                name="name"
-                value={formName}
-                onChange={(e) => setFormName(e.target.value)}
-                className="w-full border rounded px-3 py-2"
-                required
-              />
-            </label>
-            <label className="flex items-center gap-2 mt-6">
-              <input
-                name="isDefault"
-                type="checkbox"
-                checked={formIsDefault}
-                onChange={(e) => setFormIsDefault(e.target.checked)}
-                className="h-4 w-4"
-              />
-              <span className="text-sm text-gray-700">Set as default</span>
-            </label>
-          </div>
-          <div className="flex items-center gap-2">
-            <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50">
-              {loading ? 'Saving...' : editingCategory ? 'Update' : 'Save'}
-            </button>
-            {editingCategory && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingCategory(null);
-                  setFormName('');
-                  setFormIsDefault(false);
-                }}
-                className="px-4 py-2 border rounded"
-              >
-                Cancel
+        {canManage && (
+          <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-3">
+            <h2 className="font-semibold">{editingCategory ? 'Edit Category' : 'Add Category'}</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="space-y-1">
+                <span className="text-sm text-gray-700">Name *</span>
+                <input
+                  name="name"
+                  value={formName}
+                  onChange={(e) => setFormName(e.target.value)}
+                  className="w-full border rounded px-3 py-2"
+                  required
+                />
+              </label>
+              <label className="flex items-center gap-2 mt-6">
+                <input
+                  name="isDefault"
+                  type="checkbox"
+                  checked={formIsDefault}
+                  onChange={(e) => setFormIsDefault(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <span className="text-sm text-gray-700">Set as default</span>
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="submit" disabled={loading} className="px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50">
+                {loading ? 'Saving...' : editingCategory ? 'Update' : 'Save'}
               </button>
-            )}
-          </div>
-        </form>
+              {editingCategory && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingCategory(null);
+                    setFormName('');
+                    setFormIsDefault(false);
+                  }}
+                  className="px-4 py-2 border rounded"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        )}
 
         <div className="p-4 border rounded bg-white shadow-sm">
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-4">
@@ -345,11 +362,13 @@ export default function AdminCategoriesPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => handleEdit(c)} className="text-sm px-2 py-1 border rounded bg-white hover:bg-gray-50 shadow-sm">
-                    Edit
-                  </button>
-                  {!c.isDefault && (
-                    <button onClick={() => handleDelete(c.id)} className="text-sm px-2 py-1 border rounded bg-white text-red-600 hover:bg-red-50 shadow-sm">
+                  {canManage && (
+                    <button onClick={() => handleEdit(c)} className="text-sm px-2 py-1 border rounded bg-white hover:bg-gray-50 shadow-sm">
+                      Edit
+                    </button>
+                  )}
+                  {!c.isDefault && canDelete && (
+                    <button onClick={() => handleDelete(c)} className="text-sm px-2 py-1 border rounded bg-white text-red-600 hover:bg-red-50 shadow-sm">
                       Delete
                     </button>
                   )}
@@ -368,6 +387,16 @@ export default function AdminCategoriesPage() {
           onCancel={() => setShowDeleteModal(false)}
           confirmVariant="danger"
           confirmText="Delete Categories"
+        />
+
+        <ConfirmationModal
+          isOpen={!!categoryToDelete}
+          title="Delete Category"
+          message={`Are you sure you want to delete "${categoryToDelete?.name}"? This action cannot be undone and will fail if the category is in use.`}
+          onConfirm={confirmDelete}
+          onCancel={() => setCategoryToDelete(null)}
+          confirmVariant="danger"
+          confirmText="Delete"
         />
 
       </div>

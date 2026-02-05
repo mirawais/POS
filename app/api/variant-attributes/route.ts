@@ -111,7 +111,7 @@ export async function DELETE(req: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const isManager = user.role === 'MANAGER';
     const permissions = user.permissions || {};
-    if (user.role !== 'ADMIN' && !(isManager && (permissions.manage_settings || permissions.manage_products))) {
+    if (user.role !== 'ADMIN' && !(isManager && permissions.delete_variant_attributes)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

@@ -52,6 +52,7 @@ export default function AdminProductsPage() {
   const [uploading, setUploading] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null); // State for single delete
   const { showSuccess, showError } = useToast();
 
   useEffect(() => {
@@ -145,11 +146,17 @@ export default function AdminProductsPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+  const handleDelete = (product: Product) => {
+    setProductToDelete(product);
+  };
+
+  const confirmDeleteProduct = async () => {
+    if (!productToDelete) return;
     try {
-      const res = await fetch(`/api/products?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/products?id=${productToDelete.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete product');
+      showSuccess('Product deleted successfully');
+      setProductToDelete(null);
       await loadData(search);
     } catch (err: any) {
       showError(err.message || 'Failed to delete product');
@@ -972,7 +979,7 @@ export default function AdminProductsPage() {
                       </button>
                     )}
                     {canDelete && (
-                      <button onClick={() => handleDelete(p.id)} className="text-sm px-2 py-1 border rounded text-red-600 hover:bg-red-50">
+                      <button onClick={() => handleDelete(p)} className="text-sm px-2 py-1 border rounded text-red-600 hover:bg-red-50">
                         Delete
                       </button>
                     )}
@@ -992,6 +999,17 @@ export default function AdminProductsPage() {
           onCancel={() => setShowDeleteModal(false)}
           confirmVariant="danger"
           confirmText="Delete Products"
+        />
+
+        {/* Single Delete Confirmation Modal */}
+        <ConfirmationModal
+          isOpen={!!productToDelete}
+          title="Delete Product"
+          message={`Are you sure you want to delete "${productToDelete?.name}"? This action cannot be undone.`}
+          onConfirm={confirmDeleteProduct}
+          onCancel={() => setProductToDelete(null)}
+          confirmVariant="danger"
+          confirmText="Delete"
         />
       </div>
     </div>
