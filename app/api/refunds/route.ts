@@ -39,7 +39,7 @@ export async function GET(req: Request) {
     const refunds = await (prisma as any).refund.findMany({
       where,
       include: {
-        sale: { select: { id: true, orderId: true } },
+        sale: { select: { id: true, orderId: true, paymentMethod: true } },
         cashier: { select: { id: true, name: true, email: true } },
         items: {
           include: {
@@ -96,6 +96,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
     }
 
+    // Calculate Global Discount (Cart + Coupon)
+    const totalItemDiscount = sale.items.reduce((acc: number, item: any) => acc + Number(item.discount || 0), 0);
+    const globalDiscount = Math.max(0, Number(sale.discount || 0) - totalItemDiscount);
+
+    // Calculate total net value of all items for allocation
+    const totalNetBase = sale.items.reduce((acc: number, item: any) => {
+      const itemNet = Number(item.total) - Number(item.discount || 0);
+      return acc + itemNet;
+    }, 0);
+
     const refundId = generateRefundId();
     let totalRefund = 0;
 
@@ -108,8 +118,16 @@ export async function POST(req: Request) {
         saleItem.quantity - (saleItem.returnedQuantity || 0)
       );
       if (refundQty <= 0) continue;
-      const unitPrice = Number(saleItem.total) / saleItem.quantity;
-      totalRefund += unitPrice * refundQty;
+
+      const itemNet = Number(saleItem.total) - Number(saleItem.discount || 0);
+      let allocatedGlobalDiscount = 0;
+      if (totalNetBase > 0) {
+        allocatedGlobalDiscount = globalDiscount * (itemNet / totalNetBase);
+      }
+
+      const lineNetPaid = itemNet - allocatedGlobalDiscount + Number(saleItem.tax || 0);
+      const unitTotal = lineNetPaid / saleItem.quantity;
+      totalRefund += unitTotal * refundQty;
     }
 
     const result = await (prisma as any).$transaction(async (tx: any) => {
@@ -137,7 +155,13 @@ export async function POST(req: Request) {
         if (refundQty <= 0) continue;
 
         // Calculate refund amount (unit price * quantity)
-        const unitPrice = Number(saleItem.total) / saleItem.quantity;
+        const itemNet = Number(saleItem.total) - Number(saleItem.discount || 0);
+        let allocatedGlobalDiscount = 0;
+        if (totalNetBase > 0) {
+          allocatedGlobalDiscount = globalDiscount * (itemNet / totalNetBase);
+        }
+        const lineNetPaid = itemNet - allocatedGlobalDiscount + Number(saleItem.tax || 0);
+        const unitPrice = lineNetPaid / saleItem.quantity;
         const refundAmount = unitPrice * refundQty;
 
         // Create refund item with valid refund ID

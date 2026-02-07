@@ -14,6 +14,8 @@ export default function CashierSummaryPage() {
     totalProducts: 0,
     totalRefunds: 0,
     netSale: 0,
+    cashSales: 0,
+    cardSales: 0,
   });
   const [productList, setProductList] = useState<any[]>([]);
 
@@ -43,7 +45,15 @@ export default function CashierSummaryPage() {
         totalProducts: 0,
         totalRefunds: 0,
         netSale: 0,
+        cashSales: 0,
+        cardSales: 0,
       };
+
+      const methodStats = {
+        CASH: { sales: 0, tax: 0, discount: 0, coupon: 0, refunds: 0 },
+        CARD: { sales: 0, tax: 0, discount: 0, coupon: 0, refunds: 0 }
+      };
+
       const productsMap = new Map<string, any>();
 
       // Process Sales
@@ -54,10 +64,18 @@ export default function CashierSummaryPage() {
         // Separate manual discount and coupon discount
         const rawDiscount = Number(sale.discount || 0);
         const couponVal = Number(sale.couponValue || 0);
+        const manualDiscount = rawDiscount - couponVal;
 
         // Database 'discount' includes coupon value, so we subtract it to get manual discount
-        stats.totalDiscount += (rawDiscount - couponVal);
+        stats.totalDiscount += manualDiscount;
         stats.totalCouponDiscount += couponVal;
+
+        // Break down by payment method
+        const method = (sale.paymentMethod === 'CARD' ? 'CARD' : 'CASH') as 'CASH' | 'CARD';
+        methodStats[method].sales += Number(sale.total);
+        methodStats[method].tax += Number(sale.tax);
+        methodStats[method].discount += manualDiscount;
+        methodStats[method].coupon += couponVal;
 
         sale.items.forEach((item: any) => {
           // Net quantity logic (quantitiy sold - quantity returned in THIS sale item context)
@@ -83,11 +101,22 @@ export default function CashierSummaryPage() {
 
       // Process Refunds (Today's actual refund transactions)
       refunds.forEach((refund: any) => {
-        stats.totalRefunds += Number(refund.total);
+        const refundAmount = Number(refund.total);
+        stats.totalRefunds += refundAmount;
+
+        // Attribution to payment method based on original sale
+        // If paymentMethod is missing (old records), default to CASH
+        // We use the optional chaining from the updated API
+        const method = (refund.sale?.paymentMethod === 'CARD' ? 'CARD' : 'CASH') as 'CASH' | 'CARD';
+        methodStats[method].refunds += refundAmount;
       });
 
       // Strict User Formula: Net Sale = Total Sale - Discount - Coupon - Refund + Tax
       stats.netSale = stats.totalSales - stats.totalDiscount - stats.totalCouponDiscount - stats.totalRefunds + stats.totalTax;
+
+      // Calculate Cash/Card Net Sales using same formula
+      stats.cashSales = methodStats.CASH.sales - methodStats.CASH.discount - methodStats.CASH.coupon - methodStats.CASH.refunds + methodStats.CASH.tax;
+      stats.cardSales = methodStats.CARD.sales - methodStats.CARD.discount - methodStats.CARD.coupon - methodStats.CARD.refunds + methodStats.CARD.tax;
 
       setSummary(stats);
       setProductList(Array.from(productsMap.values()).sort((a, b) => b.quantity - a.quantity));
@@ -190,6 +219,14 @@ export default function CashierSummaryPage() {
               <div className="text-2xl font-bold text-amber-600">Rs. {summary.totalTax.toFixed(2)}</div>
             </div>
             <div className="p-4 bg-white border rounded shadow-sm">
+              <div className="text-sm text-gray-600">Cash Sales</div>
+              <div className="text-2xl font-bold text-emerald-600">Rs. {summary.cashSales.toFixed(2)}</div>
+            </div>
+            <div className="p-4 bg-white border rounded shadow-sm">
+              <div className="text-sm text-gray-600">Card Sales</div>
+              <div className="text-2xl font-bold text-purple-600">Rs. {summary.cardSales.toFixed(2)}</div>
+            </div>
+            <div className="p-4 bg-white border rounded shadow-sm">
               <div className="text-sm text-gray-600">Total Discount</div>
               <div className="text-2xl font-bold text-gray-700">Rs. {summary.totalDiscount.toFixed(2)}</div>
             </div>
@@ -228,6 +265,14 @@ export default function CashierSummaryPage() {
             <div className="flex justify-between text-xl font-bold border-t pt-2 mt-2">
               <span>Net Sale:</span>
               <span>Rs. {summary.netSale.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-lg mt-2">
+              <span>Cash Sales:</span>
+              <span>Rs. {summary.cashSales.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-lg">
+              <span>Card Sales:</span>
+              <span>Rs. {summary.cardSales.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-lg border-t pt-2 mt-2">
               <span>Products Sold:</span>

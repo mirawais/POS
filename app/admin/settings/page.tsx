@@ -80,6 +80,19 @@ function GeneralSettingsForm() {
                 </label>
             </div>
 
+            <div className="flex items-center justify-between border pl-4 pr-2 py-3 rounded-lg bg-gray-50">
+                <div>
+                    <h3 className="font-medium">Day Closing Time</h3>
+                    <p className="text-sm text-gray-500">Time when the business day ends (e.g., 02:00 AM)</p>
+                </div>
+                <input
+                    type="time"
+                    value={settings.dayClosingTime || '00:00'}
+                    onChange={(e) => setSettings({ ...settings, dayClosingTime: e.target.value })}
+                    className="border rounded px-3 py-2"
+                />
+            </div>
+
             <div className="flex justify-end pt-2">
                 <button
                     onClick={handleSave}

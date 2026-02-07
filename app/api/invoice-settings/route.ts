@@ -48,6 +48,7 @@ export async function POST(req: Request) {
     taxMode,
     fontSize,
     showPriceDecimals,
+    dayClosingTime,
   } = body;
 
   // Validate font size
@@ -87,6 +88,7 @@ export async function POST(req: Request) {
       taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
       fontSize: validFontSize,
       showPriceDecimals: showPriceDecimals !== false,
+      dayClosingTime: dayClosingTime || null,
     },
     create: {
       clientId,
@@ -101,6 +103,7 @@ export async function POST(req: Request) {
       taxMode: taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE',
       fontSize: validFontSize,
       showPriceDecimals: showPriceDecimals !== false,
+      dayClosingTime: dayClosingTime || null,
     },
   });
   return NextResponse.json(setting);

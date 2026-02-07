@@ -21,6 +21,7 @@ export default function AdminInvoiceSettingsPage() {
   const [showCustomer, setShowCustomer] = useState(true);
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const [fontSize, setFontSize] = useState<number>(12);
+  const [dayClosingTime, setDayClosingTime] = useState<string>('00:00');
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const { showSuccess, showError } = useToast();
 
@@ -42,6 +43,7 @@ export default function AdminInvoiceSettingsPage() {
       setShowCustomer(data.showCustomer !== false);
       setTaxMode(data.taxMode === 'INCLUSIVE' ? 'INCLUSIVE' : 'EXCLUSIVE');
       setFontSize(data.fontSize || 12);
+      setDayClosingTime(data.dayClosingTime || '00:00');
       if (data.customFields && Array.isArray(data.customFields)) {
         setCustomFields(data.customFields);
       }
@@ -70,6 +72,7 @@ export default function AdminInvoiceSettingsPage() {
           showCustomer,
           taxMode,
           fontSize: validFontSize,
+          dayClosingTime: dayClosingTime || null,
           customFields: customFields.length > 0 ? customFields : null,
         }),
       });

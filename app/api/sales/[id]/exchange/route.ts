@@ -169,15 +169,38 @@ export async function POST(
           tax,
         });
 
+        // Calculate global discount (Cart discount + Coupon) to distribute
+        // Global Discount = Total Discount - Sum of Item Level Discounts
+        const totalItemDiscount = originalSale.items.reduce((acc: number, item: any) => acc + Number(item.discount || 0), 0);
+        const globalDiscount = Math.max(0, Number(originalSale.discount) - totalItemDiscount);
+
+        // Calculate total net value of all items to serve as the basis for allocating global discount
+        const totalNetBase = originalSale.items.reduce((acc: number, item: any) => {
+          const itemNet = Number(item.total) - Number(item.discount || 0);
+          return acc + itemNet;
+        }, 0);
+
         // Calculate total returned value
         let totalReturnedValue = 0;
         for (const ret of returnItems as ReturnItem[]) {
           const saleItem = originalSale.items.find((item: any) => item.id === ret.saleItemId);
           const currentReturnQty = Number(ret.returnQuantity || ret.quantity || 0);
           if (saleItem && currentReturnQty > 0) {
-            // Calculate effective paid price per unit: (LineTotal - LineDiscount + LineTax) / Qty
-            const lineNet = Number(saleItem.total) - Number(saleItem.discount || 0) + Number(saleItem.tax || 0);
-            const unitTotal = lineNet / saleItem.quantity;
+            // Replicate the logic from frontend:
+            // ItemNet = ItemTotal - ItemDiscount (ItemTotal is price * qty)
+            const itemNet = Number(saleItem.total) - Number(saleItem.discount || 0);
+
+            // Allocation
+            let allocatedGlobalDiscount = 0;
+            if (totalNetBase > 0) {
+              allocatedGlobalDiscount = globalDiscount * (itemNet / totalNetBase);
+            }
+
+            // Net Paid = (ItemTotal - ItemDiscount - AllocatedGlobalDiscount) + Tax
+            // Tax is fixed on the line item
+            const lineNetPaid = itemNet - allocatedGlobalDiscount + Number(saleItem.tax || 0);
+
+            const unitTotal = lineNetPaid / saleItem.quantity;
             totalReturnedValue += unitTotal * currentReturnQty;
           }
         }

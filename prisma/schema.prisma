@@ -179,6 +179,7 @@ model InvoiceSetting {
   taxMode           String  @default("EXCLUSIVE") @map("tax_mode") // EXCLUSIVE or INCLUSIVE
   fontSize          Int     @default(12) @map("font_size")
   showPriceDecimals Boolean @default(true) @map("show_price_decimals")
+  dayClosingTime    String? @map("day_closing_time") // Format: "HH:mm"
 }
 
 model FBRSetting {
