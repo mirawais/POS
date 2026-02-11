@@ -1251,7 +1251,30 @@ export default function BillingPage() {
         <div className="lg:col-span-2 p-4 border rounded bg-white space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Products</h2>
-            <span className="text-sm text-gray-600">{products.length} items</span>
+            <div className="flex items-center gap-4">
+              {products.length > ITEMS_PER_PAGE && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-gray-500">
+                    Page {currentPage} of {Math.ceil(products.length / ITEMS_PER_PAGE)}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / ITEMS_PER_PAGE), p + 1))}
+                    disabled={currentPage === Math.ceil(products.length / ITEMS_PER_PAGE)}
+                    className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Next
+                  </button>
+                </div>
+              )}
+              <span className="text-sm text-gray-600">{products.length} items</span>
+            </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 mb-2">
             <input

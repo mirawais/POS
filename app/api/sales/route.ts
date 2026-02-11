@@ -67,7 +67,7 @@ export async function GET(req: Request) {
     if (cashierId) where.cashierId = cashierId;
     if (orderId) where.orderId = { contains: orderId, mode: 'insensitive' };
 
-    const sales = await (prisma as any).sale.findMany({
+    const sales = await prisma.sale.findMany({
       where,
       include: {
         client: { select: { name: true } },
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     }
 
     const productIds = items.map((i: LineInput) => i.productId);
-    const products = (await (prisma as any).product.findMany({
+    const products = (await prisma.product.findMany({
       where: { id: { in: productIds } },
       include: { variants: true, materials: { include: { rawMaterial: true } } },
     })) as any[];
@@ -129,24 +129,24 @@ export async function POST(req: Request) {
     const productMap = new Map(products.map((p) => [p.id, p]));
 
     const coupon = couponCode
-      ? await (prisma as any).coupon.findFirst({ where: { code: couponCode.toUpperCase(), isActive: true, clientId } })
+      ? await prisma.coupon.findFirst({ where: { code: couponCode.toUpperCase(), isActive: true, clientId } })
       : null;
 
     // Fetch tax mode from invoice settings FIRST
-    const invoiceSetting = await (prisma as any).invoiceSetting.findUnique({
+    const invoiceSetting = await prisma.invoiceSetting.findUnique({
       where: { clientId },
     });
     const taxMode = (invoiceSetting?.taxMode || 'EXCLUSIVE') as 'EXCLUSIVE' | 'INCLUSIVE';
 
     // Get default tax slab - always use this for Tax Inclusive mode
-    const defaultTax = await (prisma as any).taxSetting.findFirst({
+    const defaultTax = await prisma.taxSetting.findFirst({
       where: { clientId, isDefault: true },
     });
 
     const tax =
       taxId === 'none'
         ? null
-        : (taxId ? await (prisma as any).taxSetting.findUnique({ where: { id: taxId, clientId } }) : null) ||
+        : (taxId ? await prisma.taxSetting.findUnique({ where: { id: taxId, clientId } }) : null) ||
         defaultTax ||
         null;
 
@@ -213,98 +213,110 @@ export async function POST(req: Request) {
 
     const orderId = generateOrderId();
 
-    const sale = await (prisma as any).$transaction(async (tx: any) => {
+    const saleWithCashier = await prisma.$transaction(async (tx) => {
       const saleRecord = await tx.sale.create({
         data: {
           clientId,
           cashierId: user.id,
           orderId,
-          subtotal: totals.subtotal as any,
-          discount: (totals.itemDiscountTotal + totals.cartDiscountTotal + totals.couponValue) as any,
+          subtotal: totals.subtotal,
+          discount: (totals.itemDiscountTotal + totals.cartDiscountTotal + totals.couponValue),
           couponCode: coupon ? coupon.code : null,
-          couponValue: coupon ? (totals.couponValue as any) : null,
-          taxPercent: totals.taxPercent as any,
-          tax: totals.taxAmount as any,
-          total: totals.total as any,
+          couponValue: coupon ? totals.couponValue : null,
+          taxPercent: totals.taxPercent,
+          tax: totals.taxAmount,
+          total: totals.total,
           paymentMethod: paymentMethod,
           customerName: body.customerName || null,
           customerPhone: body.customerPhone || null,
         },
       });
 
-      // Create sale items and handle stock deduction
+      // Prepare SaleItems for bulk create
+      const saleItemsData = totals.perItem.map((line) => ({
+        clientId,
+        saleId: saleRecord.id,
+        productId: line.productId,
+        variantId: line.variantId ?? null,
+        quantity: line.quantity,
+        price: line.price,
+        discount: line.discount,
+        tax: line.tax,
+        total: line.total,
+      }));
+
+      // Create sale items in bulk
+      await tx.saleItem.createMany({
+        data: saleItemsData,
+      });
+
+      // Collect all stock decrement updates into a Promises array
+      const stockUpdatePromises: Promise<any>[] = [];
+
       for (const line of totals.perItem) {
         const product = productMap.get(line.productId);
         if (!product) continue;
 
-        await tx.saleItem.create({
-          data: {
-            clientId,
-            saleId: saleRecord.id,
-            productId: line.productId,
-            variantId: line.variantId ?? null,
-            quantity: line.quantity,
-            price: line.price as any,
-            discount: line.discount as any,
-            tax: line.tax as any,
-            total: line.total as any,
-          },
-        });
-
         if (product.type === 'SIMPLE') {
           if (!product.isUnlimited) {
-            await tx.product.update({
-              where: { id: product.id },
-              data: { stock: { decrement: line.quantity } },
-            });
+            stockUpdatePromises.push(
+              tx.product.update({
+                where: { id: product.id },
+                data: { stock: { decrement: line.quantity } },
+              })
+            );
           }
         }
 
         if (product.type === 'VARIANT' && line.variantId) {
-          await tx.productVariant.update({
-            where: { id: line.variantId },
-            data: { stock: { decrement: line.quantity } },
-          });
+          stockUpdatePromises.push(
+            tx.productVariant.update({
+              where: { id: line.variantId },
+              data: { stock: { decrement: line.quantity } },
+            })
+          );
         }
 
         if (product.type === 'COMPOSITE' && product.materials && product.materials.length > 0) {
           for (const material of product.materials) {
             const quantityToDeduct = Number(material.quantity) * line.quantity;
-            await tx.rawMaterial.update({
-              where: { id: material.rawMaterialId },
-              data: { stock: { decrement: quantityToDeduct } },
-            });
+            stockUpdatePromises.push(
+              tx.rawMaterial.update({
+                where: { id: material.rawMaterialId },
+                data: { stock: { decrement: Math.round(quantityToDeduct) } }, // Use Math.round for Int stock
+              })
+            );
           }
         }
       }
 
+      // Execute all stock updates in parallel
+      await Promise.all(stockUpdatePromises);
+
       // Delete held bill if it was checked out
       if (heldBillId) {
-        // Skip deletion if it's an offline-only ID (starting with OFF-)
         if (!heldBillId.toString().startsWith('OFF-')) {
           try {
             await tx.heldBill.delete({ where: { id: heldBillId } });
           } catch (e) {
             console.warn(`Could not delete held bill ${heldBillId}:`, e);
-            // We don't throw here to avoid rolling back the entire sale transaction
           }
         }
       }
 
-      return saleRecord;
-    });
-
-    const saleWithCashier = await prisma.sale.findUnique({
-      where: { id: sale.id },
-      include: {
-        cashier: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+      // Final query inside transaction to return sale with cashier info
+      return tx.sale.findUnique({
+        where: { id: saleRecord.id },
+        include: {
+          cashier: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
           },
         },
-      },
+      });
     });
 
     return NextResponse.json({ sale: saleWithCashier, totals }, { status: 201 });
