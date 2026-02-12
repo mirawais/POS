@@ -1,77 +1,30 @@
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
-import https from 'https';
-import http from 'http';
-import { URL } from 'url';
 
-// Helper function to make requests with automatic fallback for SSL errors
+// Proxy function jo aapki cPanel PHP file ko call karegi
 async function makeFBRRequest(payload: any, apiUrl: string, authToken: string): Promise<{ status: number; data: any }> {
-  const attemptRequest = (urlStr: string, useHttps: boolean) => {
-    return new Promise<{ status: number; data: any }>((resolve, reject) => {
-      const url = new URL(urlStr);
-      const postData = JSON.stringify(payload);
-      const client = useHttps ? https : http;
+  // Aapki asli domain ka URL
+  const proxyUrl = "https://printingsquad.co.uk/fbr-handler.php";
 
-      const options: any = {
-        hostname: url.hostname,
-        port: url.port || (useHttps ? 443 : 80),
-        path: url.pathname + url.search,
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData),
-        },
-        timeout: 15000
-      };
+  const response = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      // Headers mein dynamic settings bhej rahe hain jo PHP pick kar lega
+      'FBR-API-URL': apiUrl,
+      'FBR-Bearer-Token': authToken,
+    },
+    body: JSON.stringify(payload),
+  });
 
-      if (useHttps) {
-        options.rejectUnauthorized = false; // Disable SSL verification for testing/self-signed certs
-      }
-
-      const req = client.request(options, (res) => {
-        let data = '';
-        res.on('data', (chunk) => { data += chunk; });
-        res.on('end', () => {
-          try {
-            const jsonData = data ? JSON.parse(data) : {};
-            resolve({ status: res.statusCode || 500, data: jsonData });
-          } catch (e) {
-            resolve({ status: res.statusCode || 500, data: { rawResponse: data } });
-          }
-        });
-      });
-
-      req.on('error', (error: any) => {
-        // Attach property to identify SSL/Protocol errors
-        const isSslError = error.code === 'EPROTO' || error.message?.includes('SSL');
-        (error as any).canFallback = isSslError && useHttps;
-        reject(error);
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error('FBR API Request Timeout'));
-      });
-
-      req.write(postData);
-      req.end();
-    });
-  };
-
+  // Response handle karein
+  const text = await response.text();
   try {
-    // Pehli koshish: Original URL ke mutabiq (usually HTTPS)
-    const isHttps = apiUrl.toLowerCase().startsWith('https');
-    return await attemptRequest(apiUrl, isHttps);
-  } catch (error: any) {
-    // Agar SSL error aaye toh plain HTTP par retry karein
-    if (error.canFallback) {
-      console.warn('FBR SSL Error detected. Retrying with plain HTTP fallback...');
-      const fallbackUrl = apiUrl.replace(/^https:/i, 'http:');
-      return await attemptRequest(fallbackUrl, false);
-    }
-    throw error;
+    const jsonData = JSON.parse(text);
+    return { status: response.status, data: jsonData };
+  } catch (e) {
+    return { status: response.status, data: { rawResponse: text } };
   }
 }
 
@@ -84,155 +37,25 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const clientId = user.clientId as string;
 
-    // Fetch FBR settings for this client
+    // Parse request body for dynamic payment mode
+    const body = await req.json().catch(() => ({}));
+    const requestPaymentMode = body.paymentMode;
+
+    // Client ki FBR settings fetch karein
     let fbrSetting = await (prisma as any).fBRSetting.findUnique({
       where: { clientId },
     });
 
-    // If no setting exists, use defaults (but this should be configured first)
     if (!fbrSetting) {
       return NextResponse.json(
-        { error: 'FBR settings not configured. Please configure FBR Integration settings in Admin panel first.' },
+        { error: 'FBR settings not configured. Please configure them in Admin panel.' },
         { status: 400 }
       );
     }
 
-    const FBR_API_URL = fbrSetting.url;
-    const FBR_AUTH_TOKEN = fbrSetting.bearerToken;
-    const FBR_POS_ID = fbrSetting.posId;
-    const FBR_USIN = fbrSetting.usin || 'USIN0';
-    const FBR_PAYMENT_MODE = fbrSetting.paymentMode || 2;
-    const FBR_INVOICE_TYPE = fbrSetting.invoiceType || 1;
-
-    // Fetch the sale with all necessary data
+    // Sale data fetch karein
     const sale = await (prisma as any).sale.findUnique({
       where: { id: params.id, clientId },
-      include: {
-        items: {
-          include: {
-            product: { select: { id: true, name: true, sku: true } },
-            variant: { select: { id: true, name: true, sku: true, attributes: true } },
-          },
-        },
-      },
-    });
-
-    if (!sale) {
-      return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
-    }
-
-    // Check if FBR Invoice ID already exists
-    if (sale.fbrInvoiceId) {
-      return NextResponse.json({
-        error: 'FBR Invoice already generated',
-        fbrInvoiceId: sale.fbrInvoiceId
-      }, { status: 400 });
-    }
-
-    // Prepare FBR API request data
-    let totalQuantity = 0;
-    let totalSaleValue = 0;
-    const itemData: any[] = [];
-
-    for (const item of sale.items) {
-      const itemName = item.variant?.name
-        ? `${item.product.name} (${item.variant.name})`
-        : item.product.name;
-      const itemQuantity = item.quantity;
-      const itemSubtotal = Number(item.price) * itemQuantity; // Subtotal before discount and tax
-      const itemUnitPrice = itemSubtotal / itemQuantity; // Unit price before discount and tax
-      const itemTotalPrice = Number(item.total); // Total after discount and tax
-      const itemTaxCharged = Number(item.tax);
-      const itemDiscount = Number(item.discount);
-
-      totalQuantity += itemQuantity;
-      totalSaleValue += itemTotalPrice; // Sum of all item totals (as per PHP example)
-
-      itemData.push({
-        ItemCode: item.product.sku || `IT_${item.product.id.substring(0, 8)}`,
-        ItemName: itemName,
-        Quantity: itemQuantity,
-        PCTCode: '11001010', // Default PCT code, can be made configurable
-        TaxRate: sale.taxPercent ? Number(sale.taxPercent) : 0.0,
-        SaleValue: itemUnitPrice, // Unit price
-        TotalAmount: itemTotalPrice, // Total amount for this item
-        TaxCharged: itemTaxCharged,
-        Discount: itemDiscount,
-        FurtherTax: 0.0,
-        InvoiceType: FBR_INVOICE_TYPE,
-        RefUSIN: null,
-      });
-    }
-
-    // Calculate total discount
-    const totalDiscount = Number(sale.discount);
-    const totalTax = Number(sale.tax);
-    const totalBillAmount = Number(sale.total);
-
-    // Format date for FBR API (ISO 8601 format)
-    const dateTime = new Date(sale.createdAt).toISOString();
-
-    // Prepare FBR API request payload using dynamic settings
-    const fbrPayload = {
-      InvoiceNumber: sale.orderId,
-      POSID: FBR_POS_ID,
-      USIN: FBR_USIN,
-      DateTime: dateTime,
-      items: itemData,
-      TotalBillAmount: totalBillAmount,
-      TotalQuantity: totalQuantity,
-      TotalSaleValue: totalSaleValue,
-      TotalTaxCharged: totalTax,
-      Discount: totalDiscount,
-      PaymentMode: FBR_PAYMENT_MODE,
-      InvoiceType: FBR_INVOICE_TYPE,
-    };
-
-    // Send request to FBR API with SSL verification disabled
-    console.log('Sending FBR request:', JSON.stringify(fbrPayload, null, 2));
-
-    let fbrResult: any;
-    try {
-      const response = await makeFBRRequest(fbrPayload, FBR_API_URL, FBR_AUTH_TOKEN);
-
-      if (response.status < 200 || response.status >= 300) {
-        console.error('FBR API Error Response:', {
-          status: response.status,
-          data: response.data,
-        });
-        return NextResponse.json({
-          error: 'FBR API request failed',
-          status: response.status,
-          details: response.data
-        }, { status: response.status });
-      }
-
-      fbrResult = response.data;
-      console.log('FBR API Response:', JSON.stringify(fbrResult, null, 2));
-    } catch (error: any) {
-      console.error('FBR Request Error:', error);
-      return NextResponse.json({
-        error: 'Failed to connect to FBR API',
-        details: error.message || 'Network error'
-      }, { status: 500 });
-    }
-
-    // Extract FBR Invoice ID / USIN from response
-    // The response structure may vary, adjust based on actual FBR API response
-    const fbrInvoiceId = fbrResult.USIN || fbrResult.InvoiceNumber || fbrResult.id || null;
-
-    if (!fbrInvoiceId) {
-      console.error('FBR Response:', fbrResult);
-      return NextResponse.json({
-        error: 'FBR Invoice ID not received in response',
-        response: fbrResult
-      }, { status: 500 });
-    }
-
-    // Update sale with FBR Invoice ID
-    const updatedSale = await (prisma as any).sale.update({
-      where: { id: params.id },
-      data: { fbrInvoiceId },
       include: {
         items: {
           include: {
@@ -243,16 +66,63 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      fbrInvoiceId,
-      sale: updatedSale
+    if (!sale) return NextResponse.json({ error: 'Sale not found' }, { status: 404 });
+    if (sale.fbrInvoiceId) return NextResponse.json({ error: 'FBR Invoice already generated' }, { status: 400 });
+
+    // FBR Payload structure
+    const itemData = sale.items.map((item: any) => ({
+      ItemCode: item.product.sku || `IT_${item.product.id.substring(0, 8)}`,
+      ItemName: item.variant?.name ? `${item.product.name} (${item.variant.name})` : item.product.name,
+      Quantity: item.quantity,
+      PCTCode: '11001010',
+      TaxRate: sale.taxPercent ? Number(sale.taxPercent) : 0.0,
+      SaleValue: Number(item.price),
+      TotalAmount: Number(item.total),
+      TaxCharged: Number(item.tax),
+      Discount: Number(item.discount),
+      FurtherTax: 0.0,
+      InvoiceType: fbrSetting.invoiceType,
+      RefUSIN: null,
+    }));
+
+    const fbrPayload = {
+      InvoiceNumber: sale.orderId,
+      POSID: fbrSetting.posId,
+      USIN: fbrSetting.usin || 'USIN0',
+      DateTime: new Date(sale.createdAt).toISOString(),
+      items: itemData,
+      TotalBillAmount: Number(sale.total),
+      TotalQuantity: itemData.reduce((acc: number, curr: any) => acc + curr.Quantity, 0),
+      TotalSaleValue: itemData.reduce((acc: number, curr: any) => acc + curr.TotalAmount, 0),
+      TotalTaxCharged: Number(sale.tax),
+      Discount: Number(sale.discount),
+      PaymentMode: requestPaymentMode || fbrSetting.paymentMode || 2,
+      InvoiceType: fbrSetting.invoiceType,
+    };
+
+    // Request through Proxy
+    const response = await makeFBRRequest(fbrPayload, fbrSetting.url, fbrSetting.bearerToken);
+
+    if (response.status < 200 || response.status >= 300) {
+      return NextResponse.json({ error: 'FBR API Error', details: response.data }, { status: response.status });
+    }
+
+    const fbrInvoiceId = response.data.USIN || response.data.InvoiceNumber || response.data.id || null;
+
+    if (!fbrInvoiceId) {
+      return NextResponse.json({ error: 'FBR ID not received', response: response.data }, { status: 500 });
+    }
+
+    // Update database
+    const updatedSale = await (prisma as any).sale.update({
+      where: { id: params.id },
+      data: { fbrInvoiceId },
     });
+
+    return NextResponse.json({ success: true, fbrInvoiceId, sale: updatedSale });
+
   } catch (e: any) {
-    console.error('FBR integration error:', e);
-    return NextResponse.json({
-      error: e?.message ?? 'FBR integration failed'
-    }, { status: 500 });
+    console.error('FBR Proxy Error:', e);
+    return NextResponse.json({ error: e?.message ?? 'FBR integration failed' }, { status: 500 });
   }
 }
-

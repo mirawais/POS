@@ -81,71 +81,72 @@ export default function AdminFBRSettingsPage() {
       <AdminHeader title="FBR Integration" />
       <div className="p-6 space-y-6">
 
-      {message && (
-        <div className={`p-3 rounded ${message.includes('success') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-          {message}
-        </div>
-      )}
+        {message && (
+          <div className={`p-3 rounded ${message.includes('success') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {message}
+          </div>
+        )}
 
-      {loading ? (
-        <p className="text-gray-600">Loading FBR settings...</p>
-      ) : (
-        <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-4">
-          <div className="space-y-4">
-            <label className="space-y-1 block">
-              <span className="text-sm text-gray-700 font-medium">FBR API URL *</span>
-              <input
-                type="url"
-                value={settings.url}
-                onChange={(e) => setSettings({ ...settings, url: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-                placeholder="https://esp.fbr.gov.pk:8244/FBR/v1/api/Live/PostData"
-                required
-              />
-              <p className="text-xs text-gray-500">The FBR API endpoint URL</p>
-            </label>
-
-            <label className="space-y-1 block">
-              <span className="text-sm text-gray-700 font-medium">Bearer Token *</span>
-              <input
-                type="text"
-                value={settings.bearerToken}
-                onChange={(e) => setSettings({ ...settings, bearerToken: e.target.value })}
-                className="w-full border rounded px-3 py-2"
-                placeholder="Enter FBR API Bearer Token"
-                required
-              />
-              <p className="text-xs text-gray-500">API authorization token for FBR</p>
-            </label>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {loading ? (
+          <p className="text-gray-600">Loading FBR settings...</p>
+        ) : (
+          <form onSubmit={handleSubmit} className="p-4 border rounded bg-white space-y-4">
+            <div className="space-y-4">
               <label className="space-y-1 block">
-                <span className="text-sm text-gray-700 font-medium">POS ID *</span>
+                <span className="text-sm text-gray-700 font-medium">FBR API URL *</span>
                 <input
-                  type="text"
-                  value={settings.posId}
-                  onChange={(e) => setSettings({ ...settings, posId: e.target.value })}
+                  type="url"
+                  value={settings.url}
+                  onChange={(e) => setSettings({ ...settings, url: e.target.value })}
                   className="w-full border rounded px-3 py-2"
-                  placeholder="e.g., 818258"
+                  placeholder="https://esp.fbr.gov.pk:8244/FBR/v1/api/Live/PostData"
                   required
                 />
-                <p className="text-xs text-gray-500">Point of Sale identifier</p>
+                <p className="text-xs text-gray-500">The FBR API endpoint URL</p>
               </label>
 
               <label className="space-y-1 block">
-                <span className="text-sm text-gray-700 font-medium">USIN</span>
+                <span className="text-sm text-gray-700 font-medium">Bearer Token *</span>
                 <input
                   type="text"
-                  value={settings.usin}
-                  onChange={(e) => setSettings({ ...settings, usin: e.target.value })}
+                  value={settings.bearerToken}
+                  onChange={(e) => setSettings({ ...settings, bearerToken: e.target.value })}
                   className="w-full border rounded px-3 py-2"
-                  placeholder="USIN0"
+                  placeholder="Enter FBR API Bearer Token"
+                  required
                 />
-                <p className="text-xs text-gray-500">Unique system identifier (default: USIN0)</p>
+                <p className="text-xs text-gray-500">API authorization token for FBR</p>
               </label>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="space-y-1 block">
+                  <span className="text-sm text-gray-700 font-medium">POS ID *</span>
+                  <input
+                    type="text"
+                    value={settings.posId}
+                    onChange={(e) => setSettings({ ...settings, posId: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                    placeholder="e.g., 818258"
+                    required
+                  />
+                  <p className="text-xs text-gray-500">Point of Sale identifier</p>
+                </label>
+
+                <label className="space-y-1 block">
+                  <span className="text-sm text-gray-700 font-medium">USIN</span>
+                  <input
+                    type="text"
+                    value={settings.usin}
+                    onChange={(e) => setSettings({ ...settings, usin: e.target.value })}
+                    className="w-full border rounded px-3 py-2"
+                    placeholder="USIN0"
+                  />
+                  <p className="text-xs text-gray-500">Unique system identifier (default: USIN0)</p>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/*
               <label className="space-y-1 block">
                 <span className="text-sm text-gray-700 font-medium">Payment Mode *</span>
                 <select
@@ -159,40 +160,41 @@ export default function AdminFBRSettingsPage() {
                 </select>
                 <p className="text-xs text-gray-500">Payment type code (1 = Cash, 2 = Card)</p>
               </label>
+              */}
 
-              <label className="space-y-1 block">
-                <span className="text-sm text-gray-700 font-medium">Invoice Type *</span>
-                <select
-                  value={settings.invoiceType}
-                  onChange={(e) => setSettings({ ...settings, invoiceType: Number(e.target.value) })}
-                  className="w-full border rounded px-3 py-2"
-                  required
-                >
-                  <option value={1}>1 - Standard Invoice</option>
-                </select>
-                <p className="text-xs text-gray-500">Invoice type code</p>
-              </label>
+                <label className="space-y-1 block">
+                  <span className="text-sm text-gray-700 font-medium">Invoice Type *</span>
+                  <select
+                    value={settings.invoiceType}
+                    onChange={(e) => setSettings({ ...settings, invoiceType: Number(e.target.value) })}
+                    className="w-full border rounded px-3 py-2"
+                    required
+                  >
+                    <option value={1}>1 - Standard Invoice</option>
+                  </select>
+                  <p className="text-xs text-gray-500">Invoice type code</p>
+                </label>
+              </div>
             </div>
-          </div>
 
-          <div className="flex gap-2 pt-4 border-t">
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
-            >
-              {saving ? 'Saving...' : 'Save FBR Settings'}
-            </button>
-            <button
-              type="button"
-              onClick={loadSettings}
-              className="px-4 py-2 border rounded hover:bg-gray-50"
-            >
-              Reset
-            </button>
-          </div>
-        </form>
-      )}
+            <div className="flex gap-2 pt-4 border-t">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? 'Saving...' : 'Save FBR Settings'}
+              </button>
+              <button
+                type="button"
+                onClick={loadSettings}
+                className="px-4 py-2 border rounded hover:bg-gray-50"
+              >
+                Reset
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

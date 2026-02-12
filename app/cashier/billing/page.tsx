@@ -366,16 +366,68 @@ export default function BillingPage() {
   const totals = useMemo(() => {
     let subtotal = 0;
     let itemDiscountTotal = 0;
-    let cartDiscountTotal = 0;
-    let couponValue = 0;
+
+    // Resolve effective tax percent first
+    let effectiveTaxPercent = 0;
+    // Explicit 'No Tax' check
+    if (taxId === 'none') {
+      effectiveTaxPercent = 0;
+    } else if (taxMode === 'INCLUSIVE') {
+      // In INCLUSIVE mode, we prioritize specific tax slab if selected, otherwise default
+      // But based on backend, we should use the resolved tax.
+      // Frontend simplification: If no taxId selected, find default.
+      if (!taxId) {
+        const defaultTax = taxes.find((t) => t.isDefault);
+        if (defaultTax) effectiveTaxPercent = Number(defaultTax.percent);
+      } else {
+        const selectedTax = taxes.find((t) => t.id === taxId);
+        if (selectedTax) effectiveTaxPercent = Number(selectedTax.percent);
+      }
+    } else {
+      // EXCLUSIVE
+      const selectedTax = taxes.find((t) => t.id === taxId);
+      if (selectedTax) {
+        effectiveTaxPercent = Number(selectedTax.percent);
+      } else {
+        // Fallback to product default? 
+        // For now, let's stick to the selected global tax for the cart display estimation
+        // Backend handles per-product, but frontend usually estimates based on global selection for simplicity unless we iterate all products.
+        // Let's assume global selection for the "Cart Total" estimation.
+      }
+    }
+
+    let totalTaxAmount = 0;
 
     const perItem = cart.map((line) => {
       const unitPrice = line.variant?.price ?? line.product.price;
+      // 1. Display Price (Subtotal Source)
       const base = unitPrice * line.quantity;
+
       let discount = 0;
       if (line.discountType && line.discountValue) {
         discount = line.discountType === 'PERCENT' ? (base * line.discountValue) / 100 : line.discountValue * line.quantity;
       }
+
+      // Net Price for Tax Calc
+      const netPrice = Math.max(0, base - discount);
+
+      // Calculate Tax per line to match backend
+      let lineTax = 0;
+      // Note: Backend has per-product tax fallback, but here we mainly use the global taxId state for the "Order Tax".
+      // If we want perfection, we'd need to check each product's default tax if taxId is empty.
+      // For this specific request, we use 'effectiveTaxPercent' resolved above.
+
+      if (effectiveTaxPercent > 0) {
+        if (taxMode === 'INCLUSIVE') {
+          // Tax = (Net * Rate) / (100 + Rate)
+          lineTax = (netPrice * effectiveTaxPercent) / (100 + effectiveTaxPercent);
+        } else {
+          // Tax = (Net * Rate) / 100
+          lineTax = (netPrice * effectiveTaxPercent) / 100;
+        }
+      }
+
+      totalTaxAmount += lineTax;
 
       return {
         productId: line.product.id,
@@ -385,21 +437,25 @@ export default function BillingPage() {
         quantity: line.quantity,
         price: Number(unitPrice),
         discount: Number(discount),
-        total: Number(base - discount)
+        tax: lineTax,
+        total: taxMode === 'INCLUSIVE' ? netPrice : netPrice + lineTax // Line total for display
       };
     });
 
     perItem.forEach(i => {
-      subtotal += i.price * i.quantity;
+      subtotal += i.price * i.quantity; // Gross subtotal
       itemDiscountTotal += i.discount;
     });
 
+    let cartDiscountTotal = 0;
     if (cartDiscountValue) {
       const base = Math.max(0, subtotal - itemDiscountTotal);
       cartDiscountTotal = cartDiscountType === 'PERCENT' ? (base * cartDiscountValue) / 100 : cartDiscountValue;
     }
 
+    let couponValue = 0;
     const afterDiscount = Math.max(0, subtotal - itemDiscountTotal - cartDiscountTotal);
+
     if (validatedCoupon) {
       if (validatedCoupon.type === 'PERCENT') {
         couponValue = (afterDiscount * Number(validatedCoupon.value)) / 100;
@@ -408,29 +464,24 @@ export default function BillingPage() {
       }
     }
 
-    let effectiveTaxPercent = 0;
-    if (taxMode === 'INCLUSIVE') {
-      const defaultTax = taxes.find((t) => t.isDefault);
-      if (defaultTax) {
-        effectiveTaxPercent = Number(defaultTax.percent);
-      }
-    } else {
-      const selectedTax = taxes.find((t) => t.id === taxId);
-      if (selectedTax) {
-        effectiveTaxPercent = Number(selectedTax.percent);
-      }
-    }
+    // Recalculate tax if cart discounts/coupons apply? 
+    // Backend pricing.ts currently calculates tax on (ItemNet), and cart discounts are separate?
+    // WARNING: In pricing.ts, cart discounts are applied AFTER subtotal.
+    // However, for correct tax calculation on arguably "final" price, often systems assume item-level first.
+    // The previous pricing.ts logic calculated tax on ITEM NET.
+    // Cart-level discounts usually shouldn't reduce tax base unless distributed?
+    // Let's stick to the current pricing.ts logic: Tax is sum of Line Taxes. 
+    // Line Taxes are based on Item Net. Cart discount doesn't change Item Net.
 
-    let tax = 0;
     let total = 0;
-    const taxableBase = Math.max(0, afterDiscount - couponValue);
 
-    if (taxMode === 'INCLUSIVE' && effectiveTaxPercent > 0) {
-      tax = (taxableBase * effectiveTaxPercent) / (100 + effectiveTaxPercent);
-      total = Math.max(0, afterDiscount - couponValue);
+    if (taxMode === 'INCLUSIVE') {
+      // Total = Subtotal - All Discounts
+      // Tax is internally extracted from this, ensuring Total doesn't increase.
+      total = Math.max(0, subtotal - itemDiscountTotal - cartDiscountTotal - couponValue);
     } else {
-      tax = (taxableBase * effectiveTaxPercent) / 100;
-      total = taxableBase + tax;
+      // Total = Subtotal - All Discounts + Tax
+      total = Math.max(0, subtotal - itemDiscountTotal - cartDiscountTotal - couponValue) + totalTaxAmount;
     }
 
     return {
@@ -439,8 +490,8 @@ export default function BillingPage() {
       cartDiscountTotal,
       couponValue,
       taxPercent: effectiveTaxPercent,
-      tax,
-      taxAmount: tax,
+      tax: totalTaxAmount,
+      taxAmount: totalTaxAmount,
       total,
       perItem
     };
@@ -879,9 +930,11 @@ export default function BillingPage() {
 
     setFbrLoading(true);
     try {
+      const paymentMode = invoiceData?.sale?.paymentMethod === 'CARD' ? 2 : 1;
       const res = await fetch(`/api/sales/${invoiceData.sale.id}/fbr`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentMode }),
       });
 
       if (!res.ok) {

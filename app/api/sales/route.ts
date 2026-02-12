@@ -117,7 +117,7 @@ export async function POST(req: Request) {
     const productIds = items.map((i: LineInput) => i.productId);
     const products = (await prisma.product.findMany({
       where: { id: { in: productIds } },
-      include: { variants: true, materials: { include: { rawMaterial: true } } },
+      include: { variants: true, materials: { include: { rawMaterial: true } }, defaultTax: true },
     })) as any[];
 
     // Verify all products belong to this client
@@ -143,12 +143,11 @@ export async function POST(req: Request) {
       where: { clientId, isDefault: true },
     });
 
-    const tax =
-      taxId === 'none'
-        ? null
-        : (taxId ? await prisma.taxSetting.findUnique({ where: { id: taxId, clientId } }) : null) ||
-        defaultTax ||
-        null;
+    // Fetch request-level tax if provided
+    const transactionTax =
+      taxId && taxId !== 'none'
+        ? await prisma.taxSetting.findUnique({ where: { id: taxId, clientId } })
+        : null;
 
     const itemInputs = (items as LineInput[]).map((line) => {
       const product = productMap.get(line.productId);
@@ -169,23 +168,21 @@ export async function POST(req: Request) {
           }
           : null;
 
-      // Tax Inclusive mode: Always use default tax slab, ignore product-specific tax
-      let perLineTaxPercent: number | undefined = undefined;
-      if (taxMode === 'INCLUSIVE') {
-        if (defaultTax && !taxId) {
-          perLineTaxPercent = Number(defaultTax.percent);
-        } else if (taxId && taxId !== 'none') {
-          perLineTaxPercent = undefined;
-        } else if (defaultTax) {
-          perLineTaxPercent = Number(defaultTax.percent);
-        }
-      } else {
-        perLineTaxPercent =
-          taxId && taxId !== 'none'
-            ? undefined
-            : product.defaultTaxId
-              ? Number(product.defaultTax?.percent ?? 0)
-              : 0;
+      // Dynamic Tax Selection Priority:
+      // 1. Explicit "No Tax" selection (taxId === 'none') -> Force 0%
+      // 2. Transaction-level tax (from request body taxId)
+      // 3. Product-level default tax
+      // 4. Global default tax (fallback)
+      let perLineTaxPercent: number = 0;
+
+      if (taxId === 'none') {
+        perLineTaxPercent = 0;
+      } else if (transactionTax) {
+        perLineTaxPercent = Number(transactionTax.percent);
+      } else if (product.defaultTax) {
+        perLineTaxPercent = Number(product.defaultTax.percent);
+      } else if (defaultTax) {
+        perLineTaxPercent = Number(defaultTax.percent);
       }
 
       return {
@@ -207,7 +204,6 @@ export async function POST(req: Request) {
       items: itemInputs as any,
       cartRule: cartRule as any,
       coupon,
-      tax,
       taxMode,
     });
 
