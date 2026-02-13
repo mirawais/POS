@@ -37,6 +37,10 @@ export default function LoginPage() {
             window.location.href = '/admin/dashboard';
           } else if (userRole === 'CASHIER') {
             window.location.href = '/cashier/billing';
+          } else if (userRole === 'WAITER') {
+            window.location.href = '/cashier/billing';
+          } else if (userRole === 'KITCHEN') {
+            window.location.href = '/kitchen';
           } else {
             window.location.href = '/login';
           }

@@ -10,6 +10,7 @@ datasource db {
 model Client {
   id                String               @id @default(cuid())
   name              String
+  businessType      BusinessType         @default(GROCERY) @map("business_type")
   logoUrl           String?              @map("logo_url")
   companyName       String?              @map("company_name")
   contactNumber     String?              @map("contact_number")
@@ -45,6 +46,13 @@ enum Role {
   ADMIN
   CASHIER
   MANAGER
+  WAITER
+  KITCHEN
+}
+
+enum BusinessType {
+  GROCERY
+  RESTAURANT
 }
 
 model User {
@@ -196,6 +204,18 @@ model FBRSetting {
   updatedAt   DateTime @updatedAt @map("updated_at")
 }
 
+enum OrderType {
+  DINE_IN
+  TAKEAWAY
+}
+
+enum OrderStatus {
+  PENDING
+  PREPARING
+  READY
+  SERVED
+}
+
 model Sale {
   id            String     @id @default(cuid())
   orderId       String     @unique @map("order_id") // Unique order ID for each transaction
@@ -213,6 +233,9 @@ model Sale {
   type          String     @default("SALE") @map("type") // SALE, EXCHANGE, REFUND
   paymentMethod String?    @default("CASH") @map("payment_method") // CASH, CARD
   fbrInvoiceId  String?    @map("fbr_invoice_id") // FBR Invoice ID / USIN
+  orderType     OrderType? @map("order_type")
+  orderStatus   OrderStatus? @map("order_status")
+  tableNumber   String?    @map("table_number")
   createdAt     DateTime   @default(now()) @map("created_at")
   customerName  String?    @map("customer_name")
   customerPhone String?    @map("customer_phone")

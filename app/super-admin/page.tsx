@@ -34,7 +34,8 @@ export default function SuperAdminDashboard() {
         contactNumber: '',
         techContact: '',
         email: '',
-        address: ''
+        address: '',
+        businessType: 'GROCERY'
     });
     const [creating, setCreating] = useState(false);
     const { showSuccess, showError } = useToast();
@@ -74,7 +75,7 @@ export default function SuperAdminDashboard() {
             });
 
             if (res.ok) {
-                setNewClientData({ name: '', companyName: '', contactNumber: '', techContact: '', email: '', address: '' });
+                setNewClientData({ name: '', companyName: '', contactNumber: '', techContact: '', email: '', address: '', businessType: 'GROCERY' });
                 setShowCreate(false);
                 fetchClients();
                 showSuccess("Client created successfully.");
@@ -142,6 +143,17 @@ export default function SuperAdminDashboard() {
                                     onChange={e => setNewClientData({ ...newClientData, contactNumber: e.target.value })}
                                     className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                                 />
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium text-gray-700">Business Type</label>
+                                <select
+                                    value={newClientData.businessType}
+                                    onChange={e => setNewClientData({ ...newClientData, businessType: e.target.value })}
+                                    className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                >
+                                    <option value="GROCERY">Grocery / Retail</option>
+                                    <option value="RESTAURANT">Restaurant / Cafe</option>
+                                </select>
                             </div>
                             <div className="space-y-1">
                                 <label className="text-sm font-medium text-gray-700">Technical Contact (Optional)</label>
@@ -272,6 +284,15 @@ export default function SuperAdminDashboard() {
                                     {(client as any).companyName}
                                 </p>
                             )}
+
+                            <div className="mb-4">
+                                <span className={`text-[10px] px-2 py-1 rounded-full font-medium border ${(client as any).businessType === 'RESTAURANT'
+                                        ? 'bg-orange-50 text-orange-600 border-orange-100'
+                                        : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                    }`}>
+                                    {(client as any).businessType || 'GROCERY'}
+                                </span>
+                            </div>
 
                             <div className="grid grid-cols-3 gap-2 mb-6 border-t border-b border-gray-100 py-4">
                                 <div className="text-center">

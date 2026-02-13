@@ -22,7 +22,8 @@ export async function middleware(req: NextRequest) {
     const url = req.nextUrl.clone();
     // Redirect unauthorized users to their dashboard or login
     if (role === 'ADMIN') url.pathname = '/admin/dashboard';
-    else if (role === 'CASHIER') url.pathname = '/cashier/billing';
+    else if (role === 'CASHIER' || role === 'WAITER') url.pathname = '/cashier/billing';
+    else if (role === 'KITCHEN') url.pathname = '/kitchen';
     else url.pathname = '/login';
     return NextResponse.redirect(url);
   }
@@ -61,7 +62,8 @@ export async function middleware(req: NextRequest) {
       }
     } else if (role !== 'ADMIN') {
       const url = req.nextUrl.clone();
-      url.pathname = '/cashier/billing';
+      if (role === 'KITCHEN') url.pathname = '/kitchen';
+      else url.pathname = '/cashier/billing';
       return NextResponse.redirect(url);
     }
   }
@@ -72,7 +74,14 @@ export async function middleware(req: NextRequest) {
   // Should Managers be allowed in /cashier? The request says "No change to Admin or Cashier permissions".
   // Let's allow Managers to /cashier if they have billing (though we didn't add that permission yet). 
   // Let's just include MANAGER in the list for now if they happen to go there.
-  if (req.nextUrl.pathname.startsWith('/cashier') && !['SUPER_ADMIN', 'ADMIN', 'CASHIER', 'MANAGER'].includes(role)) {
+  if (req.nextUrl.pathname.startsWith('/cashier') && !['SUPER_ADMIN', 'ADMIN', 'CASHIER', 'MANAGER', 'WAITER'].includes(role)) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/login';
+    return NextResponse.redirect(url);
+  }
+
+  // 4. Kitchen area
+  if (req.nextUrl.pathname.startsWith('/kitchen') && !['SUPER_ADMIN', 'ADMIN', 'KITCHEN'].includes(role)) {
     const url = req.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);

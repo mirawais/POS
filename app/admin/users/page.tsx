@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { AdminHeader } from '@/components/layout/AdminHeader';
 
 type p = {
@@ -27,13 +28,14 @@ type User = {
   id: string;
   email: string;
   name: string | null;
-  role: 'ADMIN' | 'CASHIER' | 'MANAGER';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'CASHIER' | 'MANAGER' | 'WAITER' | 'KITCHEN';
   permissions?: p;
   createdAt: string;
   updatedAt: string;
 };
 
 export default function AdminUsersPage() {
+  const { data: session } = useSession();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -62,7 +64,7 @@ export default function AdminUsersPage() {
     email: string;
     name: string;
     password: string;
-    role: 'ADMIN' | 'CASHIER' | 'MANAGER';
+    role: 'SUPER_ADMIN' | 'ADMIN' | 'CASHIER' | 'MANAGER' | 'WAITER' | 'KITCHEN';
     permissions?: p;
   }>({
     email: '',
@@ -254,6 +256,15 @@ export default function AdminUsersPage() {
                   <option value="CASHIER">Cashier</option>
                   <option value="MANAGER">Manager</option>
                   <option value="ADMIN">Admin</option>
+                  {(session?.user?.businessType === 'RESTAURANT' || session?.user?.role === 'SUPER_ADMIN') && (
+                    <>
+                      <option value="WAITER">Waiter</option>
+                      <option value="KITCHEN">Kitchen Staff</option>
+                    </>
+                  )}
+                  {session?.user?.role === 'SUPER_ADMIN' && (
+                    <option value="SUPER_ADMIN">Super Admin</option>
+                  )}
                 </select>
               </div>
 
@@ -512,9 +523,11 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3 text-sm font-medium">{user.email}</td>
                     <td className="px-4 py-3 text-sm">{user.name || '-'}</td>
                     <td className="px-4 py-3 text-sm">
-                      <span className={`px-2 py-1 rounded text-xs ${user.role === 'ADMIN' ? 'bg-purple-100 text-purple-700' :
+                      <span className={`px-2 py-1 rounded text-xs ${user.role === 'ADMIN' || user.role === 'SUPER_ADMIN' ? 'bg-purple-100 text-purple-700' :
                         user.role === 'MANAGER' ? 'bg-orange-100 text-orange-700' :
-                          'bg-blue-100 text-blue-700'
+                          user.role === 'WAITER' ? 'bg-cyan-100 text-cyan-700' :
+                            user.role === 'KITCHEN' ? 'bg-rose-100 text-rose-700' :
+                              'bg-blue-100 text-blue-700'
                         }`}>
                         {user.role}
                       </span>

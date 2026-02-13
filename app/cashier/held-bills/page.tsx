@@ -15,6 +15,9 @@ type HeldBill = {
     couponCode?: string;
     taxId?: string;
     label?: string;
+    orderType?: 'DINE_IN' | 'TAKEAWAY';
+    tableNumber?: string;
+    tokenNumber?: string;
   };
   createdAt: string;
 };
@@ -422,6 +425,20 @@ export default function HeldBillsPage() {
                 </div>
 
                 <div className="space-y-2 mb-6 flex-grow">
+                  {/* Restaurant Details */}
+                  {bill.data?.orderType && (
+                    <div className="flex justify-between text-sm bg-gray-50 p-1 rounded">
+                      <span className="text-gray-600 font-medium">
+                        {bill.data.orderType === 'DINE_IN' ? 'Dine-in' : 'Takeaway'}
+                      </span>
+                      <span className="font-bold text-gray-900">
+                        {bill.data.orderType === 'DINE_IN'
+                          ? `Table: ${bill.data.tableNumber || 'N/A'}`
+                          : `Token: ${bill.data.tokenNumber || 'N/A'}`}
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Items:</span>
                     <span className="font-semibold text-gray-900">{itemCount}</span>

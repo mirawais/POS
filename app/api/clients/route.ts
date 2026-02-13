@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     if (user.role !== 'SUPER_ADMIN') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
     const body = await req.json();
-    const { name, companyName, contactNumber, techContact, email, address, activeDate, inactiveDate } = body ?? {};
+    const { name, companyName, contactNumber, techContact, email, address, activeDate, inactiveDate, businessType } = body ?? {};
 
     if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
@@ -42,6 +42,7 @@ export async function POST(req: Request) {
             techContact,
             email,
             address,
+            businessType: businessType || 'GROCERY',
             // Use provided activeDate or default to now if not provided (though schema default handles undefined, UI sends it)
             activeDate: activeDate ? new Date(activeDate) : new Date(),
             inactiveDate: inactiveDate ? new Date(inactiveDate) : null,

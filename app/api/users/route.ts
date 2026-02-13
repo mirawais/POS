@@ -77,9 +77,10 @@ export async function POST(req: Request) {
   }
 
   // Role validation
-  // Client Admins can only create Admin, Manager or Cashier.
-  if (!['ADMIN', 'CASHIER', 'MANAGER'].includes(role)) {
-    return NextResponse.json({ error: 'Role must be ADMIN, MANAGER or CASHIER' }, { status: 400 });
+  // Client Admins can only create Admin, Manager or Cashier. (Updated for Restaurant)
+  const allowedRoles = ['ADMIN', 'CASHIER', 'MANAGER', 'WAITER', 'KITCHEN', 'SUPER_ADMIN'];
+  if (!allowedRoles.includes(role)) {
+    return NextResponse.json({ error: `Role must be one of: ${allowedRoles.join(', ')}` }, { status: 400 });
   }
 
   // Check for duplicate email
@@ -152,8 +153,9 @@ export async function PATCH(req: Request) {
     updateData.password = await bcrypt.hash(password, 10);
   }
   if (role !== undefined) {
-    if (!['ADMIN', 'CASHIER', 'MANAGER'].includes(role)) {
-      return NextResponse.json({ error: 'Role must be ADMIN, MANAGER or CASHIER' }, { status: 400 });
+    const allowedRoles = ['ADMIN', 'CASHIER', 'MANAGER', 'WAITER', 'KITCHEN', 'SUPER_ADMIN'];
+    if (!allowedRoles.includes(role)) {
+      return NextResponse.json({ error: `Role must be one of: ${allowedRoles.join(', ')}` }, { status: 400 });
     }
     updateData.role = role;
   }

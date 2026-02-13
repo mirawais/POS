@@ -17,17 +17,17 @@ export const authConfig: NextAuthOptions = {
       },
       authorize: async (credentials) => {
         if (!credentials?.email || !credentials?.password) return null;
-        const user = await prisma.user.findUnique({ where: { email: credentials.email } });
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email },
+          include: { client: { select: { isActive: true, activeDate: true, inactiveDate: true, businessType: true } } }
+        });
         if (!user) return null;
         const ok = await bcrypt.compare(credentials.password, user.password);
         if (!ok) return null;
 
         // Check Client Status for non-Super Admins
-        if (user.role !== 'SUPER_ADMIN' && user.clientId) {
-          const client = await prisma.client.findUnique({
-            where: { id: user.clientId },
-            select: { isActive: true, activeDate: true, inactiveDate: true }
-          });
+        if (user.role !== 'SUPER_ADMIN' && user.client) {
+          const client = user.client;
 
           if (client) {
             const now = new Date();
@@ -54,6 +54,7 @@ export const authConfig: NextAuthOptions = {
           name: user.name ?? undefined,
           role: user.role,
           clientId: user.clientId,
+          businessType: user.client?.businessType,
           permissions: user.permissions,
         };
       },
@@ -66,25 +67,21 @@ export const authConfig: NextAuthOptions = {
         token.id = user.id;
         token.role = String(user.role);
         token.clientId = user.clientId;
+        token.businessType = user.businessType;
         token.permissions = user.permissions;
       } else if (token.id) {
         // Subsequent calls - refresh permissions from DB
-        // This ensures Manager permissions are updated without re-login
         try {
           const freshUser = await prisma.user.findUnique({
             where: { id: token.id as string },
-            select: {
-              permissions: true,
-              role: true,
-              clientId: true,
-              name: true
-            }
+            include: { client: { select: { businessType: true } } }
           });
 
           if (freshUser) {
             token.permissions = freshUser.permissions;
             token.role = String(freshUser.role);
             token.clientId = freshUser.clientId;
+            token.businessType = freshUser.client?.businessType;
             if (freshUser.name) token.name = freshUser.name;
           }
         } catch (error) {
@@ -98,6 +95,7 @@ export const authConfig: NextAuthOptions = {
         session.user.id = token.id;
         session.user.role = String(token.role);
         session.user.clientId = token.clientId;
+        session.user.businessType = token.businessType;
         session.user.permissions = token.permissions;
       }
       return session;

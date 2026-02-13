@@ -2,6 +2,8 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/notifications/ToastContainer';
 import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
@@ -55,6 +57,17 @@ export default function BillingPage() {
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const { showError, showSuccess, showInfo } = useToast();
+  const { data: session } = useSession();
+  const isRestaurant = session?.user?.businessType === 'RESTAURANT';
+  const isWaiter = session?.user?.role === 'WAITER';
+
+  // Permission Check: Kitchen users not allowed here
+  const router = useRouter();
+  useEffect(() => {
+    if (session?.user?.role === 'KITCHEN') {
+      router.push('/kitchen');
+    }
+  }, [session, router]);
 
   const [newOrderModalOpen, setNewOrderModalOpen] = useState(false);
   const [showHeld, setShowHeld] = useState(false);
@@ -82,11 +95,42 @@ export default function BillingPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 50;
 
+  // Restaurant Mode State
+  const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY'>('DINE_IN');
+  const [tableNumber, setTableNumber] = useState('');
+  const [tokenNumber, setTokenNumber] = useState<string>('');
+
+  // Token Generation Logic
+  useEffect(() => {
+    if (currentHeldBillId) return; // Don't auto-generate if working on a saved cart
+
+    if (isRestaurant && orderType === 'TAKEAWAY') {
+      const today = new Date().toISOString().split('T')[0];
+      const stored = localStorage.getItem('daily_token_counter');
+      let counter = { date: today, count: 0 };
+
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.date === today) {
+            counter = parsed;
+          }
+        } catch (e) {
+          console.error('Token counter parse error', e);
+        }
+      }
+
+      const nextNum = counter.count + 1;
+      setTokenNumber(`T-${String(nextNum).padStart(3, '0')}`);
+    } else if (!isRestaurant || orderType === 'DINE_IN') {
+      setTokenNumber('');
+    }
+  }, [isRestaurant, orderType, cart.length, currentHeldBillId]);
+
   const loadProducts = useCallback(async (term: string) => {
     setCurrentPage(1); // Reset to first page on search/reload
 
     // 1. Cache-First Strategy: Load from local storage IMMEDIATELY
-    // If there is a search term, we try to filter locally first to give instant feedback
     const cached = localStorage.getItem('cached_products');
     let localProducts: Product[] = [];
 
@@ -167,6 +211,11 @@ export default function BillingPage() {
     try {
       const data = bill.data || {};
       const savedCart = data.cart || [];
+
+      // Restore Restaurant Fields
+      if (data.orderType) setOrderType(data.orderType);
+      if (data.tableNumber) setTableNumber(data.tableNumber);
+      if (data.tokenNumber) setTokenNumber(data.tokenNumber);
 
       // Reconstruct cart with full product objects
       // Get current products - if empty, fetch them
@@ -812,7 +861,22 @@ export default function BillingPage() {
       heldBillId: currentHeldBillId || null,
       customerName,
       customerPhone,
+      // Restaurant Fields
+      orderType: isRestaurant ? orderType : undefined,
+      tableNumber: (isRestaurant && orderType === 'DINE_IN') ? tableNumber :
+        (isRestaurant && orderType === 'TAKEAWAY') ? tokenNumber : undefined,
+      orderStatus: isRestaurant ? 'PENDING' : undefined,
     };
+
+    // Increment Token Counter if Takeaway
+    if (isRestaurant && orderType === 'TAKEAWAY') {
+      const today = new Date().toISOString().split('T')[0];
+      const match = tokenNumber.match(/T-(\d+)/);
+      if (match) {
+        const currentCount = parseInt(match[1], 10);
+        localStorage.setItem('daily_token_counter', JSON.stringify({ date: today, count: currentCount }));
+      }
+    }
 
     try {
       if (!isOnline) {
@@ -1095,6 +1159,11 @@ export default function BillingPage() {
     setCustomerName('');
     setCustomerPhone('');
     setIsLoadedCart(false); // Clear loaded cart flag
+
+    // Reset Restaurant Fields
+    setTableNumber('');
+    setOrderType('DINE_IN');
+    // tokenNumber auto-updates via useEffect based on orderType
   };
 
   const handleSaveCartClick = () => {
@@ -1102,6 +1171,12 @@ export default function BillingPage() {
       showError('Nothing to save');
       return;
     }
+
+    if (isRestaurant && orderType === 'DINE_IN' && !tableNumber.trim()) {
+      showError('Please enter a Table Number');
+      return;
+    }
+
     // Always show prompt for cart name
     // Only pre-fill if we're updating a cart that was explicitly loaded from saved carts
     // We track this with a flag to distinguish between "loaded cart" vs "newly saved cart"
@@ -1130,7 +1205,34 @@ export default function BillingPage() {
       couponCode: validatedCoupon?.code || couponCode || null,
       taxId,
       label: name || cartName || existingLabel || `Cart ${new Date().toLocaleString()}`,
+      // Restaurant Fields
+      orderType: isRestaurant ? orderType : undefined,
+      tableNumber: (isRestaurant && orderType === 'DINE_IN') ? tableNumber : undefined,
+      tokenNumber: (isRestaurant && orderType === 'TAKEAWAY') ? tokenNumber : undefined,
+      orderStatus: 'PENDING',
     };
+
+    // Increment Token Counter if Takeaway (New Save Only)
+    // We only increment if we are creating a NEW held bill (not updating an existing loaded one)
+    // OR if we are updating but changing type to Takeaway? Complexity... 
+    // Let's stick to: If it's Takeaway, we assume we used the current token, so we should increment.
+    // Use a flag to avoid double increment if we save multiple times? 
+    // Ideally, we only increment if we successfully save. But for offline/optimistic UI, we do it here.
+    if (isRestaurant && orderType === 'TAKEAWAY') {
+      // Only increment if this is a NEW hold or if we didn't load a bill with this token?
+      // Simplification: Increment. If we re-save, we might burn a token number, but that's better than duplicates.
+      // Actually, check if `currentHeldBillId && isLoadedCart`. If so, we are updating.
+      // If we are updating, we probably don't need to increment unless we switched to Takeaway just now.
+      // Let's just increment if it's a new hold.
+      if (!(currentHeldBillId && isLoadedCart)) {
+        const today = new Date().toISOString().split('T')[0];
+        const match = tokenNumber.match(/T-(\d+)/);
+        if (match) {
+          const currentCount = parseInt(match[1], 10);
+          localStorage.setItem('daily_token_counter', JSON.stringify({ date: today, count: currentCount }));
+        }
+      }
+    }
 
     // CHECK OFFLINE STATUS FIRST - before any try/catch
     if (!navigator.onLine) {
@@ -1458,6 +1560,44 @@ export default function BillingPage() {
         </div>
 
         <div className="p-4 border rounded bg-white space-y-3">
+          {/* Restaurant Controls */}
+          {isRestaurant && (
+            <div className="mb-3 p-2 bg-gray-50 rounded border border-gray-200">
+              <div className="flex gap-2 mb-2">
+                <button
+                  onClick={() => setOrderType('DINE_IN')}
+                  className={`flex-1 py-1 text-sm font-medium rounded ${orderType === 'DINE_IN' ? 'bg-blue-600 text-white' : 'bg-white border text-gray-700'}`}
+                >
+                  Dine-in
+                </button>
+                <button
+                  onClick={() => setOrderType('TAKEAWAY')}
+                  className={`flex-1 py-1 text-sm font-medium rounded ${orderType === 'TAKEAWAY' ? 'bg-blue-600 text-white' : 'bg-white border text-gray-700'}`}
+                >
+                  Takeaway
+                </button>
+              </div>
+
+              {orderType === 'DINE_IN' ? (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Table Number <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={tableNumber}
+                    onChange={(e) => setTableNumber(e.target.value)}
+                    className="w-full border rounded px-2 py-1 text-sm"
+                    placeholder="e.g. 5, A1"
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center justify-between bg-white border rounded px-3 py-1">
+                  <span className="text-sm font-semibold text-gray-700">Token Number:</span>
+                  <span className="text-lg font-bold text-blue-600">{tokenNumber || '...'}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
             <input
               type="text"
@@ -1614,26 +1754,28 @@ export default function BillingPage() {
             </div>
 
             {/* Action Buttons Row */}
-            <div className="flex gap-2">
-              {!showCartDiscount && (
-                <button
-                  type="button"
-                  onClick={() => setShowCartDiscount(true)}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-                >
-                  Add Discount
-                </button>
-              )}
-              {!showCouponInput && !validatedCoupon && (
-                <button
-                  type="button"
-                  onClick={() => setShowCouponInput(true)}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
-                >
-                  Apply Coupon
-                </button>
-              )}
-            </div>
+            {!isWaiter && (
+              <div className="flex gap-2">
+                {!showCartDiscount && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCartDiscount(true)}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                  >
+                    Add Discount
+                  </button>
+                )}
+                {!showCouponInput && !validatedCoupon && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCouponInput(true)}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 text-sm font-medium"
+                  >
+                    Apply Coupon
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Hidden Inputs */}
             {showCartDiscount && (
@@ -1734,13 +1876,24 @@ export default function BillingPage() {
           </div>
 
           <div className="flex gap-2">
-            <button
-              disabled={loading || cart.length === 0}
-              onClick={checkout}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
-            >
-              {loading ? 'Processing...' : 'Checkout'}
-            </button>
+            {!isWaiter ? (
+              <button
+                disabled={loading || cart.length === 0}
+                onClick={checkout}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
+              >
+                {loading ? 'Processing...' : 'Checkout'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSaveCartClick}
+                disabled={cart.length === 0 || loading}
+                className="flex-1 bg-orange-600 text-white py-4 rounded-xl font-bold text-xl hover:bg-orange-700 transition-colors shadow-lg active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed fixed bottom-0 left-0 right-0 m-4 z-50 lg:static lg:m-0 lg:py-2 lg:text-base lg:shadow-none"
+              >
+                {loading ? 'Sending...' : `Send to Kitchen (${cart.length})`}
+              </button>
+            )}
             {invoiceData && (
               <button
                 onClick={() => {
@@ -1766,8 +1919,8 @@ export default function BillingPage() {
               </button>
               <button
                 onClick={printFBRInvoice}
-                disabled={fbrLoading}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                disabled={fbrLoading || isWaiter}
+                className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed ${isWaiter ? 'hidden' : ''}`}
               >
                 {fbrLoading ? 'Processing...' : 'Print FBR Invoice'}
               </button>

@@ -219,6 +219,8 @@ export default function ClientUsersPage() {
                             <option value="CASHIER">Cashier</option>
                             <option value="MANAGER">Manager</option>
                             <option value="ADMIN">Admin</option>
+                            <option value="WAITER">Waiter</option>
+                            <option value="KITCHEN">Kitchen Staff</option>
                         </select>
 
                         {formData.role === 'MANAGER' && (
