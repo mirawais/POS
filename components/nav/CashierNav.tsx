@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { signOut } from 'next-auth/react';
+import { signOut, useSession } from 'next-auth/react';
 import { useState } from 'react';
 import { Menu, X, LogOut } from 'lucide-react';
 
@@ -12,13 +12,38 @@ const links = [
   { href: '/cashier/orders', label: 'Orders' },
   { href: '/cashier/exchanges', label: 'Returns/Exchanges' },
   { href: '/cashier/refunds', label: 'Refunds' },
+  { href: '/cashier/pending-checkouts', label: 'Pending Checkouts' },
   { href: '/cashier/summary', label: 'Summary' },
   { href: '/cashier/settings', label: 'Settings' },
 ];
 
 export function CashierNav() {
   const pathname = usePathname();
+  const { data: session } = useSession();
   const [isOpen, setIsOpen] = useState(false);
+
+  const role = session?.user?.role;
+  const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
+
+  const filteredLinks = links.filter((link) => {
+    const isWaiter = role === 'WAITER';
+    const isCashier = role === 'CASHIER';
+    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'RESTAURANT_ADMIN'].includes(role || '');
+
+    // 1. Waiter-Restaurant Case: Hide restricted menus
+    if (isRestaurant && isWaiter) {
+      const allowedLabels = ['Billing', 'Held Bills', 'Summary', 'Settings'];
+      return allowedLabels.includes(link.label);
+    }
+
+    // 2. Pending Checkouts: Visible only to Restaurant Cashiers/Admins
+    if (link.label === 'Pending Checkouts') {
+      return isRestaurant && (isCashier || isAdmin);
+    }
+
+    // 3. For all other cases (including all Grocery clients), show everything
+    return true;
+  });
 
   return (
     <header className="bg-white border-b relative print:hidden">
@@ -28,8 +53,9 @@ export function CashierNav() {
 
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-1 text-sm bg-gray-50/50 p-1 rounded-lg border border-gray-100">
-            {links.map((link) => {
+            {filteredLinks.map((link) => {
               const active = pathname?.startsWith(link.href);
+              const label = (link.label === 'Held Bills' && role === 'WAITER' && isRestaurant) ? 'Kitchen Orders' : link.label;
               return (
                 <Link
                   key={link.href}
@@ -39,7 +65,7 @@ export function CashierNav() {
                     : 'text-gray-600 hover:text-blue-600 hover:bg-gray-100'
                     }`}
                 >
-                  {link.label}
+                  {label}
                 </Link>
               );
             })}
@@ -73,8 +99,9 @@ export function CashierNav() {
       {isOpen && (
         <div className="md:hidden absolute top-full left-0 right-0 bg-white border-b shadow-lg z-50 animate-in slide-in-from-top-2 duration-200">
           <nav className="flex flex-col p-4 space-y-2">
-            {links.map((link) => {
+            {filteredLinks.map((link) => {
               const active = pathname?.startsWith(link.href);
+              const label = (link.label === 'Held Bills' && role === 'WAITER' && isRestaurant) ? 'Kitchen Orders' : link.label;
               return (
                 <Link
                   key={link.href}
@@ -85,7 +112,7 @@ export function CashierNav() {
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                 >
-                  {link.label}
+                  {label}
                 </Link>
               );
             })}
@@ -106,4 +133,3 @@ export function CashierNav() {
     </header>
   );
 }
-

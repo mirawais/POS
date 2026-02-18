@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/notifications/ToastContainer';
 import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
+import { formatPrice as baseFormatPrice } from '@/lib/utils';
 
 
 type ProductVariant = {
@@ -39,6 +40,9 @@ type CartLine = {
   discountType?: 'PERCENT' | 'AMOUNT';
   discountValue?: number | null;
   variant?: ProductVariant;
+  status?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'BILLING_REQUESTED' | 'REJECTED';
+  addedAt?: string;
+  isDirectServe?: boolean;
 };
 
 export default function BillingPage() {
@@ -56,7 +60,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(false);
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
-  const { showError, showSuccess, showInfo } = useToast();
+  const { showError, showSuccess, showInfo, showToast } = useToast();
   const { data: session } = useSession();
   const isRestaurant = session?.user?.businessType === 'RESTAURANT';
   const isWaiter = session?.user?.role === 'WAITER';
@@ -99,6 +103,7 @@ export default function BillingPage() {
   const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY'>('DINE_IN');
   const [tableNumber, setTableNumber] = useState('');
   const [tokenNumber, setTokenNumber] = useState<string>('');
+  const [kitchenNote, setKitchenNote] = useState('');
 
   // Token Generation Logic
   useEffect(() => {
@@ -216,6 +221,7 @@ export default function BillingPage() {
       if (data.orderType) setOrderType(data.orderType);
       if (data.tableNumber) setTableNumber(data.tableNumber);
       if (data.tokenNumber) setTokenNumber(data.tokenNumber);
+      setKitchenNote(data.kitchenNote || '');
 
       // Reconstruct cart with full product objects
       // Get current products - if empty, fetch them
@@ -267,6 +273,8 @@ export default function BillingPage() {
               discountType: item.discountType,
               discountValue: item.discountValue,
               variant,
+              status: item.status || 'PENDING',
+              addedAt: item.addedAt || bill.createdAt,
             });
           }
         } else if (item.productId) {
@@ -284,6 +292,8 @@ export default function BillingPage() {
               discountType: item.discountType,
               discountValue: item.discountValue,
               variant,
+              status: item.status || 'PENDING',
+              addedAt: item.addedAt || bill.createdAt,
             });
           }
         }
@@ -340,24 +350,35 @@ export default function BillingPage() {
     loadSettings();
   }, [loadProducts]);
 
-  // Handle loading held bill from Held Bills page
   useEffect(() => {
     const loadHeldBillId = sessionStorage.getItem('loadHeldBillId');
-    console.log('DEBUG: loadHeldBillId from session:', loadHeldBillId);
-    console.log('DEBUG: heldBills count:', heldBills.length);
-    console.log('DEBUG: products count:', products.length);
+    if (!loadHeldBillId || products.length === 0) return;
 
-    if (loadHeldBillId && heldBills.length > 0 && products.length > 0) {
+    const findAndLoad = async () => {
       sessionStorage.removeItem('loadHeldBillId');
-      const bill = heldBills.find(b => b.id.toString() === loadHeldBillId.toString());
-      console.log('DEBUG: Found bill to load:', bill ? 'YES' : 'NO');
+      let bill = heldBills.find(b => b.id.toString() === loadHeldBillId.toString());
+
+      if (!bill) {
+        try {
+          const res = await fetch(`/api/held-bills?id=${loadHeldBillId}`);
+          if (res.ok) {
+            const data = await res.json();
+            bill = Array.isArray(data) ? data[0] : data;
+          }
+        } catch (err) {
+          console.error('Failed to fetch bill by ID', err);
+        }
+      }
+
       if (bill) {
         loadHeldBill(bill);
       } else {
-        console.warn('DEBUG: Bill ID not found in heldBills list:', loadHeldBillId);
+        showError('Order not found or could not be loaded');
       }
-    }
-  }, [heldBills, products, loadHeldBill]);
+    };
+
+    findAndLoad();
+  }, [heldBills, products, loadHeldBill, showError]);
 
   // Note: Invoice data is now only cleared when "New Order" is clicked, not automatically
   const loadTaxes = async () => {
@@ -407,9 +428,59 @@ export default function BillingPage() {
     }
   };
 
+  // Waiter Notification Polling for REJECTED items
+  useEffect(() => {
+    if (!isWaiter || !currentHeldBillId || !isOnline) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/held-bills?id=${currentHeldBillId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const bill = Array.isArray(data) ? data[0] : data;
+          if (bill && bill.data?.cart) {
+            const hasRejected = bill.data.cart.some((item: any) => item.status === 'REJECTED');
+            const previouslyRejectedCount = cart.filter(i => i.status === 'REJECTED').length;
+            const currentlyRejectedCount = bill.data.cart.filter((i: any) => i.status === 'REJECTED').length;
+
+            if (hasRejected && currentlyRejectedCount > previouslyRejectedCount) {
+              const newlyRejected = bill.data.cart.find((i: any) => i.status === 'REJECTED' && !cart.find(ci => ci.product.id === i.product.id && ci.variant?.id === i.variant?.id && ci.status === 'REJECTED'));
+              if (newlyRejected) {
+                showToast(`Table ${bill.data.tableNumber || 'N/A'}: ${newlyRejected.product.name} is unavailable`, 'error', 10000);
+              }
+            }
+
+            // Silently update cart statuses if changed
+            setCart(prevCart => {
+              let changed = false;
+              const newCart = prevCart.map(prevItem => {
+                const serverItem = bill.data.cart.find((si: any) =>
+                  si.product.id === prevItem.product.id &&
+                  si.variant?.id === prevItem.variant?.id &&
+                  si.addedAt === prevItem.addedAt
+                );
+                if (serverItem && serverItem.status !== prevItem.status) {
+                  changed = true;
+                  return { ...prevItem, status: serverItem.status };
+                }
+                return prevItem;
+              });
+              return changed ? newCart : prevCart;
+            });
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+    }, 10000); // 10s polling for waiters
+
+    return () => clearInterval(pollInterval);
+  }, [isWaiter, currentHeldBillId, isOnline, cart, showError]);
+
   const formatPrice = useCallback((amount: number | undefined | null) => {
     if (amount === undefined || amount === null) return '0';
-    return showPriceDecimals ? Number(amount).toFixed(2) : Number(amount).toFixed(0);
+    if (!showPriceDecimals) return Number(amount).toFixed(0);
+    return baseFormatPrice(amount);
   }, [showPriceDecimals]);
 
   const totals = useMemo(() => {
@@ -585,8 +656,15 @@ export default function BillingPage() {
     const availableStock = getMaxStock(product, variant);
 
     // Check current cart quantity
-    const key = `${product.id}:${variant?.id || 'base'}`;
-    const existing = cart.find((p) => `${p.product.id}:${p.variant?.id || 'base'}` === key);
+    // NEW LOGIC: Only increment if status is PENDING (or undefined/empty which defaults to PENDING)
+    // AND must belong to a "recent" addition if we want to bundle, but for simplicity we bundle all local PENDING.
+    const existingIndex = cart.findIndex((p) => {
+      const isSameItem = p.product.id === product.id && p.variant?.id === variant?.id;
+      const canIncrement = (!p.status || p.status === 'PENDING');
+      return isSameItem && canIncrement;
+    });
+
+    const existing = existingIndex !== -1 ? cart[existingIndex] : null;
     const currentQty = existing ? existing.quantity : 0;
     const requestedQty = currentQty + 1;
 
@@ -598,19 +676,19 @@ export default function BillingPage() {
     }
 
     setCart((prev) => {
-      if (existing) {
-        return prev.map((p) => (`${p.product.id}:${p.variant?.id || 'base'}` === key ? { ...p, quantity: p.quantity + 1 } : p));
+      if (existingIndex !== -1) {
+        return prev.map((p, i) => (i === existingIndex ? { ...p, quantity: p.quantity + 1 } : p));
       }
-      return [...prev, { product, variant, quantity: 1 }];
+      return [...prev, { product, variant, quantity: 1, status: 'PENDING', addedAt: new Date().toISOString(), isDirectServe: false }];
     });
     if (!taxId && (product as any).defaultTaxId) {
       setTaxId((product as any).defaultTaxId);
     }
   };
 
-  const updateQuantity = (keyId: string, qty: number) => {
+  const updateQuantity = (uniqueId: string, qty: number) => {
     setCart((prev) => {
-      const item = prev.find((p) => `${p.product.id}:${p.variant?.id || 'base'}` === keyId);
+      const item = prev.find((p) => `${p.product.id}:${p.variant?.id || 'base'}:${p.addedAt}` === uniqueId);
       if (!item) return prev;
 
       // Check stock
@@ -623,19 +701,27 @@ export default function BillingPage() {
         return prev;
       }
 
-      return prev.map((p) => (`${p.product.id}:${p.variant?.id || 'base'}` === keyId ? { ...p, quantity: Math.max(1, qty) } : p));
+      return prev.map((p) => (`${p.product.id}:${p.variant?.id || 'base'}:${p.addedAt}` === uniqueId ? { ...p, quantity: Math.max(1, qty) } : p));
     });
   };
 
-  const updateItemDiscount = (keyId: string, discountType: 'PERCENT' | 'AMOUNT', value: number) => {
+  const updateItemDiscount = (uniqueId: string, discountType: 'PERCENT' | 'AMOUNT', value: number) => {
     setCart((prev) =>
       prev.map((p) =>
-        `${p.product.id}:${p.variant?.id || 'base'}` === keyId ? { ...p, discountType, discountValue: value } : p
+        `${p.product.id}:${p.variant?.id || 'base'}:${p.addedAt}` === uniqueId ? { ...p, discountType, discountValue: value } : p
       )
     );
   };
 
-  const removeLine = (keyId: string) => setCart((prev) => prev.filter((p) => `${p.product.id}:${p.variant?.id || 'base'}` !== keyId));
+  const toggleDirectServe = (uniqueId: string) => {
+    setCart((prev) =>
+      prev.map((p) =>
+        `${p.product.id}:${p.variant?.id || 'base'}:${p.addedAt}` === uniqueId ? { ...p, isDirectServe: !p.isDirectServe } : p
+      )
+    );
+  };
+
+  const removeLine = (uniqueId: string) => setCart((prev) => prev.filter((p) => `${p.product.id}:${p.variant?.id || 'base'}:${p.addedAt}` !== uniqueId));
 
   const applyCoupon = async () => {
     if (!couponCode.trim()) {
@@ -866,6 +952,7 @@ export default function BillingPage() {
       tableNumber: (isRestaurant && orderType === 'DINE_IN') ? tableNumber :
         (isRestaurant && orderType === 'TAKEAWAY') ? tokenNumber : undefined,
       orderStatus: isRestaurant ? 'PENDING' : undefined,
+      kitchenNote: kitchenNote || null,
     };
 
     // Increment Token Counter if Takeaway
@@ -1158,6 +1245,7 @@ export default function BillingPage() {
     setCurrentHeldBillId(null);
     setCustomerName('');
     setCustomerPhone('');
+    setKitchenNote('');
     setIsLoadedCart(false); // Clear loaded cart flag
 
     // Reset Restaurant Fields
@@ -1187,6 +1275,16 @@ export default function BillingPage() {
     } else {
       setCartName('');
     }
+
+    if (isWaiter && isRestaurant) {
+      // Auto-title for Waiter
+      const autoLabel = orderType === 'DINE_IN'
+        ? `Table ${tableNumber || '?'}`
+        : `Token ${tokenNumber || '?'}`;
+      saveCart(autoLabel);
+      return;
+    }
+
     setShowCartNamePrompt(true);
   };
 
@@ -1199,7 +1297,13 @@ export default function BillingPage() {
     // Prepare payload first
     const existingLabel = (currentHeldBillId && isLoadedCart) ? heldBills.find(b => b.id === currentHeldBillId)?.data?.label : null;
     const payload = {
-      cart,
+      cart: cart.map(item => {
+        // Direct Serve Logic: If toggled ON and still PENDING, set to SERVED immediately
+        if (item.isDirectServe && (!item.status || item.status === 'PENDING')) {
+          return { ...item, status: 'SERVED' };
+        }
+        return item;
+      }),
       cartDiscountType,
       cartDiscountValue,
       couponCode: validatedCoupon?.code || couponCode || null,
@@ -1210,6 +1314,7 @@ export default function BillingPage() {
       tableNumber: (isRestaurant && orderType === 'DINE_IN') ? tableNumber : undefined,
       tokenNumber: (isRestaurant && orderType === 'TAKEAWAY') ? tokenNumber : undefined,
       orderStatus: 'PENDING',
+      kitchenNote: kitchenNote || null,
     };
 
     // Increment Token Counter if Takeaway (New Save Only)
@@ -1302,10 +1407,14 @@ export default function BillingPage() {
       setHeldBills(newHeldBills);
       localStorage.setItem('cached_held_bills', JSON.stringify(newHeldBills));
 
-      showSuccess('Cart saved successfully');
+      showSuccess(isWaiter && isRestaurant ? 'Order sent to kitchen' : 'Cart saved successfully');
       setShowCartNamePrompt(false);
       setCartName('');
       startNewOrder();
+
+      if (isWaiter && isRestaurant) {
+        router.push('/cashier/held-bills');
+      }
     } catch (e: any) {
       // If network fails (even if navigator.onLine was true initially), fallback to offline save
       console.error('Save cart failed:', e);
@@ -1598,22 +1707,24 @@ export default function BillingPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
-            <input
-              type="text"
-              placeholder="Customer Name (Optional)"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              className="border rounded px-2 py-1 text-sm"
-            />
-            <input
-              type="text"
-              placeholder="Customer Phone (Optional)"
-              value={customerPhone}
-              onChange={(e) => setCustomerPhone(e.target.value)}
-              className="border rounded px-2 py-1 text-sm"
-            />
-          </div>
+          {!isWaiter && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+              <input
+                type="text"
+                placeholder="Customer Name (Optional)"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              />
+              <input
+                type="text"
+                placeholder="Customer Phone (Optional)"
+                value={customerPhone}
+                onChange={(e) => setCustomerPhone(e.target.value)}
+                className="border rounded px-2 py-1 text-sm"
+              />
+            </div>
+          )}
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Cart</h2>
             <div className="flex gap-2">
@@ -1623,7 +1734,7 @@ export default function BillingPage() {
                 className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                 disabled={loading || cart.length === 0}
               >
-                Save Cart
+                {isWaiter && isRestaurant ? 'Send to Kitchen' : 'Save Cart'}
               </button>
               <button
                 type="button"
@@ -1660,67 +1771,105 @@ export default function BillingPage() {
             </div>
           )}
           <div className="space-y-2">
-            {cart.map((line) => (
-              <div key={`${line.product.id}:${line.variant?.id || 'base'}`} className="border rounded px-2 py-2">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <div className="font-medium">
-                      {line.product.name}
-                      <span className="ml-2 text-gray-600 font-normal text-sm">
-                        (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500">{line.product.sku}</div>
-                    {line.variant && (
-                      <div className="text-xs text-gray-600">
-                        {line.variant.name || 'Variant'}{' '}
-                        {line.variant.attributes
-                          ? `(${Object.entries(line.variant.attributes)
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join(', ')})`
-                          : ''}{' '}
-                        @ Rs. {formatPrice(line.variant.price)}
+            {cart.map((line) => {
+              const isGrocery = session?.user?.businessType === 'GROCERY';
+              const canDelete = isGrocery || !line.status || line.status === 'PENDING' || line.status === 'REJECTED';
+              const uniqueId = `${line.product.id}:${line.variant?.id || 'base'}:${line.addedAt}`;
+
+              return (
+                <div key={uniqueId} className={`border rounded px-2 py-2 ${line.status === 'REJECTED' ? 'bg-red-50 border-red-200' : ''}`}>
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <div className={`font-medium ${line.status === 'REJECTED' ? 'line-through text-red-700' : ''}`}>
+                        {line.product.name}
+                        <span className="ml-2 text-gray-600 font-normal text-sm">
+                          (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
+                        </span>
                       </div>
+                      <div className="text-xs text-gray-500">{line.product.sku}</div>
+                      {line.variant && (
+                        <div className="text-xs text-gray-600">
+                          {line.variant.name || 'Variant'}{' '}
+                          {line.variant.attributes
+                            ? `(${Object.entries(line.variant.attributes)
+                              .map(([k, v]) => `${k}: ${v}`)
+                              .join(', ')})`
+                            : ''}{' '}
+                          @ Rs. {formatPrice(line.variant.price)}
+                        </div>
+                      )}
+                      {line.status && line.status !== 'PENDING' && (
+                        <div className="text-[10px] font-bold mt-1">
+                          Status: <span className={
+                            line.status === 'READY' ? 'text-green-600' :
+                              line.status === 'PREPARING' ? 'text-blue-600' :
+                                line.status === 'SERVED' ? 'text-gray-500' :
+                                  line.status === 'REJECTED' ? 'text-red-600' : 'text-orange-600'
+                          }>{line.status}</span>
+                        </div>
+                      )}
+                    </div>
+                    {canDelete && (
+                      <button className="text-xs text-red-600 hover:text-red-800 font-medium" onClick={() => removeLine(uniqueId)}>
+                        Remove
+                      </button>
                     )}
                   </div>
-                  <button className="text-xs text-red-600" onClick={() => removeLine(`${line.product.id}:${line.variant?.id || 'base'}`)}>Remove</button>
+
+                  {/* Direct Serve Toggle */}
+                  {isRestaurant && (!line.status || line.status === 'PENDING') && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => toggleDirectServe(uniqueId)}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${line.isDirectServe
+                          ? 'bg-gray-100 text-gray-700 border-gray-300'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                          }`}
+                        title="Mark as served immediately (skips kitchen)"
+                      >
+                        <div className={`w-2 h-2 rounded-full ${line.isDirectServe ? 'bg-gray-500' : 'bg-transparent border border-gray-300'}`}></div>
+                        DIRECT SERVE
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="mt-2 flex items-center gap-2">
+                    <label className="text-xs text-gray-700">Qty</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-16 border rounded px-2 py-1 text-sm"
+                      value={line.quantity}
+                      onChange={(e) => updateQuantity(uniqueId, Number(e.target.value))}
+                    />
+                    <label className="text-xs text-gray-700 ml-2">Item Discount</label>
+                    <select
+                      className="border rounded px-2 py-1 text-sm flex-1"
+                      value={line.discountType || 'AMOUNT'}
+                      onChange={(e) => updateItemDiscount(uniqueId, e.target.value as any, line.discountValue || 0)}
+                    >
+                      <option value="AMOUNT">Amount</option>
+                      <option value="PERCENT">Percent</option>
+                    </select>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="w-24 border rounded px-2 py-1 text-sm"
+                      value={line.discountValue ?? 0}
+                      onChange={(e) =>
+                        updateItemDiscount(
+                          uniqueId,
+                          line.discountType || 'AMOUNT',
+                          Number(e.target.value)
+                        )
+                      }
+                      placeholder="Disc"
+                    />
+                  </div>
                 </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <label className="text-xs text-gray-700">Qty</label>
-                  <input
-                    type="number"
-                    min={1}
-                    className="w-16 border rounded px-2 py-1 text-sm"
-                    value={line.quantity}
-                    onChange={(e) => updateQuantity(`${line.product.id}:${line.variant?.id || 'base'}`, Number(e.target.value))}
-                  />
-                  <label className="text-xs text-gray-700 ml-2">Item Discount</label>
-                  <select
-                    className="border rounded px-2 py-1 text-sm flex-1"
-                    value={line.discountType || 'AMOUNT'}
-                    onChange={(e) => updateItemDiscount(`${line.product.id}:${line.variant?.id || 'base'}`, e.target.value as any, line.discountValue || 0)}
-                  >
-                    <option value="AMOUNT">Amount</option>
-                    <option value="PERCENT">Percent</option>
-                  </select>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className="w-24 border rounded px-2 py-1 text-sm"
-                    value={line.discountValue ?? 0}
-                    onChange={(e) =>
-                      updateItemDiscount(
-                        `${line.product.id}:${line.variant?.id || 'base'}`,
-                        line.discountType || 'AMOUNT',
-                        Number(e.target.value)
-                      )
-                    }
-                    placeholder="Disc"
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
             {cart.length === 0 && <p className="text-sm text-gray-600">Cart is empty.</p>}
           </div>
 
@@ -1740,7 +1889,7 @@ export default function BillingPage() {
                 Clear Cart
               </button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className={`flex items-center gap-2 ${isWaiter ? 'hidden' : ''}`}>
               <label className="space-y-1 block flex-1">
                 <span className="text-sm text-gray-700">Tax</span>
                 <select className="w-full border rounded px-2 py-1 text-sm" value={taxId} onChange={(e) => setTaxId(e.target.value)}>
@@ -1752,6 +1901,19 @@ export default function BillingPage() {
                 </select>
               </label>
             </div>
+            {/* Kitchen Note Field - Only for Restaurant */}
+            {isRestaurant && (
+              <div className="mt-4 p-3 bg-blue-50 bg-opacity-50 border border-blue-100 rounded-lg">
+                <label className="block text-sm font-semibold text-blue-800 mb-1">Kitchen Note (Special Instructions)</label>
+                <textarea
+                  value={kitchenNote}
+                  onChange={(e) => setKitchenNote(e.target.value)}
+                  className="w-full border-blue-200 rounded-lg p-2 text-sm focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="e.g. Less salt, extra spicy..."
+                  rows={2}
+                />
+              </div>
+            )}
 
             {/* Action Buttons Row */}
             {!isWaiter && (
@@ -1861,19 +2023,23 @@ export default function BillingPage() {
             )}
           </div>
 
-          <div className="border-t pt-3 space-y-1 text-sm">
-            <div className="flex justify-between"><span>Subtotal</span><span>Rs. {formatPrice(totals.subtotal)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Item discounts</span><span>- Rs. {formatPrice(totals.itemDiscountTotal)}</span></div>
-            <div className="flex justify-between text-amber-700"><span>Cart discount</span><span>- Rs. {formatPrice(totals.cartDiscountTotal)}</span></div>
-            {totals.couponValue > 0 && (
-              <div className="flex justify-between text-amber-700">
-                <span>Coupon {validatedCoupon ? `(${validatedCoupon.code})` : '(est.)'}</span>
-                <span>- Rs. {formatPrice(totals.couponValue)}</span>
+          {
+            !isWaiter && (
+              <div className="border-t pt-3 space-y-1 text-sm">
+                <div className="flex justify-between"><span>Subtotal</span><span>Rs. {formatPrice(totals.subtotal)}</span></div>
+                <div className="flex justify-between text-amber-700"><span>Item discounts</span><span>- Rs. {formatPrice(totals.itemDiscountTotal)}</span></div>
+                <div className="flex justify-between text-amber-700"><span>Cart discount</span><span>- Rs. {formatPrice(totals.cartDiscountTotal)}</span></div>
+                {totals.couponValue > 0 && (
+                  <div className="flex justify-between text-amber-700">
+                    <span>Coupon {validatedCoupon ? `(${validatedCoupon.code})` : '(est.)'}</span>
+                    <span>- Rs. {formatPrice(totals.couponValue)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ Rs. {formatPrice(totals.tax)}</span></div>
+                <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>Rs. {formatPrice(totals.total)}</span></div>
               </div>
-            )}
-            <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ Rs. {formatPrice(totals.tax)}</span></div>
-            <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>Rs. {formatPrice(totals.total)}</span></div>
-          </div>
+            )
+          }
 
           <div className="flex gap-2">
             {!isWaiter ? (
@@ -1891,7 +2057,7 @@ export default function BillingPage() {
                 disabled={cart.length === 0 || loading}
                 className="flex-1 bg-orange-600 text-white py-4 rounded-xl font-bold text-xl hover:bg-orange-700 transition-colors shadow-lg active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed fixed bottom-0 left-0 right-0 m-4 z-50 lg:static lg:m-0 lg:py-2 lg:text-base lg:shadow-none"
               >
-                {loading ? 'Sending...' : `Send to Kitchen (${cart.length})`}
+                {loading ? 'Sending...' : (currentHeldBillId && isLoadedCart) ? `Update Kitchen (${cart.length})` : `Send to Kitchen (${cart.length})`}
               </button>
             )}
             {invoiceData && (
@@ -1909,23 +2075,25 @@ export default function BillingPage() {
               </button>
             )}
           </div>
-          {invoiceData && (
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={() => printInvoice(false)}
-                className="flex-1 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800"
-              >
-                Print Invoice
-              </button>
-              <button
-                onClick={printFBRInvoice}
-                disabled={fbrLoading || isWaiter}
-                className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed ${isWaiter ? 'hidden' : ''}`}
-              >
-                {fbrLoading ? 'Processing...' : 'Print FBR Invoice'}
-              </button>
-            </div>
-          )}
+          {
+            invoiceData && (
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => printInvoice(false)}
+                  className="flex-1 px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-800"
+                >
+                  Print Invoice
+                </button>
+                <button
+                  onClick={printFBRInvoice}
+                  disabled={fbrLoading || isWaiter}
+                  className={`flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed ${isWaiter ? 'hidden' : ''}`}
+                >
+                  {fbrLoading ? 'Processing...' : 'Print FBR Invoice'}
+                </button>
+              </div>
+            )
+          }
         </div>
       </div>
 

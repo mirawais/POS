@@ -25,12 +25,23 @@ export async function GET() {
             orderBy: { createdAt: 'asc' }, // Oldest first for kitchen
         });
 
-        // Filter for PENDING or PREPARING status
-        // The status is stored inside the JSON `data` field
-        const kitchenOrders = bills.filter((bill: any) => {
-            const status = bill.data?.orderStatus;
-            return status === 'PENDING' || status === 'PREPARING';
-        });
+        // Filter and map: only return orders with PENDING or PREPARING items
+        const kitchenOrders = bills.map((bill: any) => {
+            const cart = bill.data?.cart || [];
+            const visibleItems = cart.filter((item: any) =>
+                !item.status || item.status === 'PENDING' || item.status === 'PREPARING' || item.status === 'READY'
+            );
+
+            if (visibleItems.length === 0) return null;
+
+            return {
+                ...bill,
+                data: {
+                    ...bill.data,
+                    cart: visibleItems
+                }
+            };
+        }).filter(Boolean);
 
         return NextResponse.json(kitchenOrders);
     } catch (error) {
@@ -43,24 +54,71 @@ export async function PATCH(req: Request) {
     if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { id, status } = body;
+    const { id, status, productId, variantId, itemStatus } = body;
 
-    if (!id || !status) return NextResponse.json({ error: 'Missing fields' }, { status: 400 });
+    if (!id) return NextResponse.json({ error: 'Missing bill id' }, { status: 400 });
 
     try {
         const bill = await prisma.heldBill.findUnique({ where: { id } });
         if (!bill) return NextResponse.json({ error: 'Order not found' }, { status: 404 });
 
         const currentData = bill.data as any;
-        const updatedData = { ...currentData, orderStatus: status };
+        const cart = currentData.cart || [];
+        let updatedCart = [...cart];
+        let newOrderStatus = currentData.orderStatus;
+
+        if (productId && itemStatus) {
+            // Item-level update
+            updatedCart = cart.map((item: any) => {
+                const isMatch = item.product?.id === productId &&
+                    (!variantId || item.variant?.id === variantId);
+
+                if (isMatch) {
+                    // Protection: NEVER modify already served items from kitchen
+                    if (item.status === 'SERVED' || item.status === 'BILLING_REQUESTED') return item;
+                    return { ...item, status: itemStatus };
+                }
+                return item;
+            });
+
+            // If we marked an item as READY or REJECTED, check overall order status
+            const stillWorking = updatedCart.some(i => !i.status || i.status === 'PENDING' || i.status === 'PREPARING');
+            if (!stillWorking) {
+                // If everything is READY, SERVED or REJECTED, order is READY for pickup/billing
+                newOrderStatus = 'READY';
+            } else if (itemStatus === 'PREPARING') {
+                newOrderStatus = 'PREPARING';
+            }
+        } else if (status) {
+            // Bulk update (Original behavior but with protection)
+            updatedCart = cart.map((item: any) => {
+                if (item.status === 'SERVED' || item.status === 'BILLING_REQUESTED') return item;
+
+                if (status === 'PREPARING' && (!item.status || item.status === 'PENDING')) {
+                    return { ...item, status: 'PREPARING' };
+                }
+                if (status === 'READY' && item.status === 'PREPARING') {
+                    return { ...item, status: 'READY' };
+                }
+                return item;
+            });
+            newOrderStatus = status;
+        }
 
         const updated = await prisma.heldBill.update({
             where: { id },
-            data: { data: updatedData },
+            data: {
+                data: {
+                    ...currentData,
+                    cart: updatedCart,
+                    orderStatus: newOrderStatus
+                }
+            },
         });
 
         return NextResponse.json(updated);
     } catch (error) {
+        console.error('Kitchen update error:', error);
         return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
     }
 }

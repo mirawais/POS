@@ -214,6 +214,7 @@ enum OrderStatus {
   PREPARING
   READY
   SERVED
+  BILLING_REQUESTED
 }
 
 model Sale {
@@ -239,6 +240,7 @@ model Sale {
   createdAt     DateTime   @default(now()) @map("created_at")
   customerName  String?    @map("customer_name")
   customerPhone String?    @map("customer_phone")
+  kitchenNote   String?    @map("kitchen_note")
   items         SaleItem[]
   refunds       Refund[]
 }

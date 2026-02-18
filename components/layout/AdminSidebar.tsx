@@ -134,6 +134,15 @@ export function AdminSidebar() {
               const permissions = (session?.user as any)?.permissions || {};
 
               const filteredItems = group.items.filter(item => {
+                const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
+                const role = session?.user?.role;
+
+                // 1. Waiter-Restaurant Case: Hide restricted items (Orders)
+                if (isRestaurant && role === 'WAITER') {
+                  const allowedHrefs = ['/admin/dashboard', '/admin/reports']; // Minimal view
+                  return allowedHrefs.includes(item.href);
+                }
+
                 if (!isManager) return true;
 
                 // Permission Mapping

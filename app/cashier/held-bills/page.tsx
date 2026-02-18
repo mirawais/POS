@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/notifications/ToastContainer';
-import { Printer } from 'lucide-react';
+import { signOut, useSession } from 'next-auth/react';
+import { Printer, Receipt } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 
 type HeldBill = {
@@ -18,6 +19,8 @@ type HeldBill = {
     orderType?: 'DINE_IN' | 'TAKEAWAY';
     tableNumber?: string;
     tokenNumber?: string;
+    orderStatus?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'BILLING_REQUESTED';
+    kitchenNote?: string;
   };
   createdAt: string;
 };
@@ -26,7 +29,11 @@ export default function HeldBillsPage() {
   const [heldBills, setHeldBills] = useState<HeldBill[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
-  const { showError, showSuccess } = useToast();
+  const { data: session } = useSession();
+  const { showError, showSuccess, showToast } = useToast();
+
+  const role = session?.user?.role;
+  const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
 
   // Modal State
   const [deleteModal, setDeleteModal] = useState({
@@ -37,11 +44,18 @@ export default function HeldBillsPage() {
 
   useEffect(() => {
     loadHeldBills();
+
+    // 15s polling
+    const interval = setInterval(() => {
+      loadHeldBills(true); // silent refresh
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  const loadHeldBills = async () => {
+  const loadHeldBills = async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       // 1. Get Offline Queue (Unsynced items)
       const offlineQueue = JSON.parse(localStorage.getItem('offline_held_queue') || '[]');
 
@@ -49,6 +63,27 @@ export default function HeldBillsPage() {
       const res = await fetch('/api/held-bills');
       if (!res.ok) throw new Error('Failed to load held bills');
       const serverData = await res.json();
+
+      // Check for READY orders to show toast
+      if (isSilent) {
+        serverData.forEach((bill: HeldBill) => {
+          const oldBill = heldBills.find(b => b.id === bill.id);
+          if (bill.data?.orderStatus === 'READY' && oldBill?.data?.orderStatus !== 'READY') {
+            showSuccess(`Order ${bill.data?.label || bill.id} is READY!`);
+          }
+
+          // Check for rejected items
+          const currentRejected = bill.data?.cart?.filter((i: any) => i.status === 'REJECTED') || [];
+          const oldRejected = oldBill?.data?.cart?.filter((i: any) => i.status === 'REJECTED') || [];
+
+          if (currentRejected.length > oldRejected.length) {
+            const newlyRejected = currentRejected.find((i: any) => !oldRejected.some((oi: any) => oi.product.id === i.product.id && oi.variant?.id === i.variant?.id));
+            if (newlyRejected) {
+              showToast(`Table ${bill.data?.tableNumber || 'N/A'}: ${newlyRejected.product?.name} is unavailable`, 'error', 10000);
+            }
+          }
+        });
+      }
 
       // 3. Merge: Offline First + Server Data
       const combinedData = [...offlineQueue, ...serverData];
@@ -95,6 +130,22 @@ export default function HeldBillsPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestBilling = async (id: string) => {
+    try {
+      const res = await fetch('/api/held-bills', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'BILLING_REQUESTED' }),
+      });
+
+      if (!res.ok) throw new Error('Failed to request billing');
+      showSuccess('Billing request sent to cashier');
+      loadHeldBills();
+    } catch (err: any) {
+      showError(err.message || 'Failed to request billing');
     }
   };
 
@@ -173,13 +224,27 @@ export default function HeldBillsPage() {
         localStorage.setItem('offline_deleted_held_bills', JSON.stringify(deletedIds));
       }
 
-
-
       if (err.message === 'Offline') {
         showSuccess('Deleted from local list (Offline)');
       } else {
         showSuccess('Deleted locally (Server unreachable)');
       }
+    }
+  };
+
+  const markAsServed = async (id: string) => {
+    try {
+      const res = await fetch('/api/held-bills', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'SERVED' }),
+      });
+
+      if (!res.ok) throw new Error('Failed to update status');
+      showSuccess('Order marked as served');
+      loadHeldBills();
+    } catch (err: any) {
+      showError(err.message || 'Failed to serve order');
     }
   };
 
@@ -405,77 +470,172 @@ export default function HeldBillsPage() {
 
       {!loading && heldBills.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {heldBills.map((bill) => {
-            const cartLabel = bill.data?.label;
-            const itemCount = getItemCount(bill);
-            const estimatedTotal = calculateCartTotal(bill);
-            const savedDate = new Date(bill.createdAt);
+          {heldBills
+            .filter(bill => {
+              if (role === 'WAITER' && bill.data?.orderStatus === 'BILLING_REQUESTED') return false;
+              return true;
+            })
+            .map((bill) => {
+              const cartLabel = bill.data?.label;
+              const itemCount = getItemCount(bill);
+              const estimatedTotal = calculateCartTotal(bill);
+              const savedDate = new Date(bill.createdAt);
 
-            return (
-              <div key={bill.id} className="bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col h-full">
-                <div className="mb-4">
-                  <div className="flex justify-between items-start">
-                    <h3 className="font-bold text-gray-900 line-clamp-1">
-                      {cartLabel || 'Unnamed Cart'}
-                    </h3>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {savedDate.toLocaleString()}
-                  </p>
-                </div>
-
-                <div className="space-y-2 mb-6 flex-grow">
-                  {/* Restaurant Details */}
-                  {bill.data?.orderType && (
-                    <div className="flex justify-between text-sm bg-gray-50 p-1 rounded">
-                      <span className="text-gray-600 font-medium">
-                        {bill.data.orderType === 'DINE_IN' ? 'Dine-in' : 'Takeaway'}
-                      </span>
-                      <span className="font-bold text-gray-900">
-                        {bill.data.orderType === 'DINE_IN'
-                          ? `Table: ${bill.data.tableNumber || 'N/A'}`
-                          : `Token: ${bill.data.tokenNumber || 'N/A'}`}
-                      </span>
+              return (
+                <div key={bill.id} className="bg-white border rounded-xl shadow-sm hover:shadow-md transition-shadow p-5 flex flex-col h-full">
+                  <div className="mb-4">
+                    <div className="flex justify-between items-start">
+                      <h3 className="font-bold text-gray-900 line-clamp-1">
+                        {cartLabel || 'Unnamed Cart'}
+                      </h3>
                     </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {savedDate.toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 mb-6 flex-grow">
+                    {/* Order Status Badge - Only for Restaurant */}
+                    {isRestaurant && (
+                      <div className="mb-3">
+                        {(() => {
+                          const status = bill.data?.orderStatus || 'PENDING';
+                          let colorClass = 'bg-orange-100 text-orange-800 border-orange-200';
+                          let label = 'PENDING';
+
+                          if (status === 'PREPARING') {
+                            colorClass = 'bg-blue-100 text-blue-800 border-blue-200';
+                            label = 'PREPARING';
+                          } else if (status === 'READY') {
+                            colorClass = 'bg-green-100 text-green-800 border-green-200 animate-pulse';
+                            label = 'READY';
+                          } else if (status === 'SERVED') {
+                            colorClass = 'bg-gray-100 text-gray-800 border-gray-200';
+                            label = 'SERVED';
+                          } else if (status === 'BILLING_REQUESTED') {
+                            colorClass = 'bg-purple-100 text-purple-800 border-purple-200';
+                            label = 'BILLING REQUESTED';
+                          }
+
+                          return (
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold border ${colorClass}`}>
+                              {label}
+                            </span>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Restaurant Details */}
+                    {isRestaurant && bill.data?.orderType && (
+                      <div className="flex justify-between text-sm bg-gray-50 p-1 rounded">
+                        <span className="text-gray-600 font-medium">
+                          {bill.data.orderType === 'DINE_IN' ? 'Dine-in' : 'Takeaway'}
+                        </span>
+                        <span className="font-bold text-gray-900">
+                          {bill.data.orderType === 'DINE_IN'
+                            ? `Table: ${bill.data.tableNumber || 'N/A'}`
+                            : `Token: ${bill.data.tokenNumber || 'N/A'}`}
+                        </span>
+                      </div>
+                    )}
+
+                    {isRestaurant ? (
+                      <div className="mt-4 border-t pt-3">
+                        <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2 flex justify-between">
+                          <span>Order Details</span>
+                          <span className="text-gray-400">{itemCount} items</span>
+                        </p>
+                        <ul className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                          {bill.data?.cart?.map((item: any, idx: number) => {
+                            const status = item.status || 'PENDING';
+                            let statusColor = 'bg-orange-100 text-orange-800 border-orange-200';
+                            if (status === 'READY') statusColor = 'bg-green-100 text-green-800 border-green-200';
+                            else if (status === 'SERVED') statusColor = 'bg-gray-100 text-gray-600 border-gray-200';
+                            else if (status === 'PREPARING') statusColor = 'bg-blue-100 text-blue-800 border-blue-200';
+
+                            return (
+                              <li key={idx} className="flex justify-between items-start text-xs border-b border-gray-50 pb-1 last:border-0">
+                                <span className="text-gray-800 font-medium leading-tight flex-1">
+                                  <span className="font-black mr-1">{item.quantity}x</span> {item.product?.name}
+                                  {item.variant?.name && <span className="text-[10px] text-gray-500 block font-normal">{item.variant.name}</span>}
+                                </span>
+                                <span className={`ml-2 px-1.5 py-0.5 rounded text-[9px] font-black border uppercase whitespace-nowrap ${statusColor}`}>
+                                  {status.replace('_', ' ')}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Items:</span>
+                        <span className="font-semibold text-gray-900">{itemCount}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Estimated Total:</span>
+                      <span className="font-semibold text-blue-600">Rs. {estimatedTotal.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-4 border-t mt-auto">
+                    <button
+                      onClick={() => handleLoad(bill)}
+                      className="flex-grow px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-colors"
+                    >
+                      Load Cart
+                    </button>
+                    <button
+                      onClick={() => printHeldBill(bill)}
+                      className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                      title="Print"
+                    >
+                      <Printer className="w-5 h-5 text-gray-600" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteClick(bill.id, cartLabel)}
+                      disabled={
+                        isRestaurant && 
+                        (bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status)) ||
+                        (role === 'WAITER' && bill.data?.orderStatus !== 'PENDING'))
+                      }
+                      className="p-2 border border-red-100 rounded-lg hover:bg-red-50 text-red-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={
+                        !isRestaurant ? "Delete" :
+                        bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status)) 
+                          ? "Cannot delete bill with items in preparation or served" :
+                        role === 'WAITER' && bill.data?.orderStatus !== 'PENDING' 
+                          ? "Waiters can only delete PENDING orders" : "Delete"
+                      }
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+                  {bill.data?.orderStatus === 'READY' && role === 'WAITER' && (
+                    <button
+                      onClick={() => markAsServed(bill.id)}
+                      className="mt-3 w-full py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm"
+                    >
+                      Mark as Served
+                    </button>
                   )}
 
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Items:</span>
-                    <span className="font-semibold text-gray-900">{itemCount}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Estimated Total:</span>
-                    <span className="font-semibold text-blue-600">Rs. {estimatedTotal.toLocaleString()}</span>
-                  </div>
+                  {role === 'WAITER' && bill.data?.orderStatus === 'SERVED' && (
+                    <button
+                      onClick={() => requestBilling(bill.id)}
+                      className="mt-2 w-full py-2 bg-blue-700 text-white rounded-lg font-bold hover:bg-blue-800 transition-colors shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Receipt className="w-4 h-4" />
+                      Generate Bill
+                    </button>
+                  )}
                 </div>
-
-                <div className="flex gap-2 pt-4 border-t mt-auto">
-                  <button
-                    onClick={() => handleLoad(bill)}
-                    className="flex-grow px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-colors"
-                  >
-                    Load Cart
-                  </button>
-                  <button
-                    onClick={() => printHeldBill(bill)}
-                    className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                    title="Print"
-                  >
-                    <Printer className="w-5 h-5 text-gray-600" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteClick(bill.id, cartLabel)}
-                    className="p-2 border border-red-100 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
-                    title="Delete"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       )}
 

@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId, paymentMethod = 'CASH' } = body ?? {};
+    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId, paymentMethod = 'CASH', kitchenNote } = body ?? {};
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'No items' }, { status: 400 });
     if (!['CASH', 'CARD'].includes(paymentMethod)) {
       return NextResponse.json({ error: 'Payment method must be CASH or CARD' }, { status: 400 });
