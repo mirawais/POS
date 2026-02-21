@@ -624,7 +624,7 @@ export default function HeldBillsPage() {
                     </button>
                   )}
 
-                  {['WAITER', 'CASHIER'].includes(role || '') && bill.data?.orderStatus === 'SERVED' && (
+                  {['WAITER', 'CASHIER'].includes(role || '') && (bill.data?.orderStatus === 'SERVED' || bill.data?.cart?.every((i: any) => ['SERVED', 'REJECTED'].includes(i.status))) && (
                     <button
                       onClick={() => requestBilling(bill.id)}
                       className="mt-2 w-full py-2 bg-blue-700 text-white rounded-lg font-bold hover:bg-blue-800 transition-colors shadow-sm flex items-center justify-center gap-2"

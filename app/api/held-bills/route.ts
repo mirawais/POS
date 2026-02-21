@@ -54,6 +54,16 @@ export async function POST(req: Request) {
   const { data, id } = body; // id is optional - if provided, update existing; otherwise create new
   if (!data) return NextResponse.json({ error: 'No cart data' }, { status: 400 });
 
+  // Helper to calculate overall orderStatus from cart items
+  const calculateOrderStatus = (cartItems: any[]) => {
+    const statuses = cartItems.map(i => i.status || 'PENDING');
+    if (statuses.length === 0) return 'PENDING';
+    if (statuses.every(s => s === 'SERVED' || s === 'REJECTED')) return 'SERVED';
+    if (statuses.includes('READY')) return 'READY';
+    if (statuses.includes('PREPARING')) return 'PREPARING';
+    return 'PENDING';
+  };
+
   // If id is provided, update existing held bill
   if (id) {
     const existing = await prisma.heldBill.findFirst({
@@ -69,10 +79,10 @@ export async function POST(req: Request) {
     const existingCart: any[] = existingData.cart || [];
     const incomingCart: any[] = data.cart || [];
 
-    // Build a map of existing items by product+variant key
+    // Build a map of existing items by unique key (product + variant + addedAt)
     const existingMap = new Map<string, any>();
     for (const item of existingCart) {
-      const key = `${item.product?.id ?? item.productId}::${item.variant?.id ?? item.variantId ?? ''}`;
+      const key = `${item.product?.id ?? item.productId}::${item.variant?.id ?? item.variantId ?? ''}::${item.addedAt || ''}`;
       existingMap.set(key, item);
     }
 
@@ -81,7 +91,7 @@ export async function POST(req: Request) {
     const seenKeys = new Set<string>();
 
     for (const incomingItem of incomingCart) {
-      const key = `${incomingItem.product?.id ?? incomingItem.productId}::${incomingItem.variant?.id ?? incomingItem.variantId ?? ''}`;
+      const key = `${incomingItem.product?.id ?? incomingItem.productId}::${incomingItem.variant?.id ?? incomingItem.variantId ?? ''}::${incomingItem.addedAt || ''}`;
       const existingItem = existingMap.get(key);
 
       if (existingItem && ['PREPARING', 'READY', 'SERVED'].includes(existingItem.status)) {
@@ -97,7 +107,7 @@ export async function POST(req: Request) {
     // Re-append any existing items that were NOT in the incoming payload
     // (e.g. PREPARING items the cashier removed from the cart view — keep them)
     for (const existingItem of existingCart) {
-      const key = `${existingItem.product?.id ?? existingItem.productId}::${existingItem.variant?.id ?? existingItem.variantId ?? ''}`;
+      const key = `${existingItem.product?.id ?? existingItem.productId}::${existingItem.variant?.id ?? existingItem.variantId ?? ''}::${existingItem.addedAt || ''}`;
       if (!seenKeys.has(key) && ['PREPARING', 'READY', 'SERVED'].includes(existingItem.status)) {
         mergedCart.push(existingItem);
       }
@@ -107,6 +117,7 @@ export async function POST(req: Request) {
       ...existingData,   // Preserve any fields not in the incoming payload
       ...data,           // Apply updates (label, discounts, orderType, etc.)
       cart: mergedCart,  // Override with the merged cart
+      orderStatus: calculateOrderStatus(mergedCart), // Use the dynamically calculated status
     };
 
     const updated = await prisma.heldBill.update({
@@ -117,11 +128,16 @@ export async function POST(req: Request) {
   }
 
   // Otherwise, create new held bill
+  const finalData = {
+    ...data,
+    orderStatus: calculateOrderStatus(data.cart || []),
+  };
+
   const bill = await prisma.heldBill.create({
     data: {
       clientId,
       cashierId,
-      data,
+      data: finalData,
     },
   });
   return NextResponse.json(bill, { status: 201 });

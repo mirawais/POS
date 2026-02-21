@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/notifications/ToastContainer';
-import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 import { formatPrice as baseFormatPrice } from '@/lib/utils';
 
@@ -1420,6 +1420,11 @@ export default function BillingPage() {
       setShowCartNamePrompt(false);
       setCartName('');
       startNewOrder();
+
+      // Redirect to Kitchen Orders page after saving (Requirement)
+      if (isRestaurant) {
+        router.push('/cashier/held-bills');
+      }
     } catch (e: any) {
       // If network fails (even if navigator.onLine was true initially), fallback to offline save
       console.error('Save cart failed:', e);
@@ -1826,13 +1831,17 @@ export default function BillingPage() {
                     <div className="mt-2 flex items-center gap-2">
                       <button
                         onClick={() => toggleDirectServe(uniqueId)}
-                        className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${line.isDirectServe
-                          ? 'bg-gray-100 text-gray-700 border-gray-300'
-                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-[10px] font-bold transition-all duration-200 shadow-sm ${line.isDirectServe
+                          ? 'bg-emerald-600 text-white border-transparent'
+                          : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'
                           }`}
                         title="Mark as served immediately (skips kitchen)"
                       >
-                        <div className={`w-2 h-2 rounded-full ${line.isDirectServe ? 'bg-gray-500' : 'bg-transparent border border-gray-300'}`}></div>
+                        {line.isDirectServe ? (
+                          <Check className="w-3 h-3" />
+                        ) : (
+                          <div className="w-2.5 h-2.5 rounded-full border border-gray-400"></div>
+                        )}
                         DIRECT SERVE
                       </button>
                     </div>
