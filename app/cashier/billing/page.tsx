@@ -63,6 +63,7 @@ export default function BillingPage() {
   const { showError, showSuccess, showInfo, showToast } = useToast();
   const { data: session } = useSession();
   const isRestaurant = session?.user?.businessType === 'RESTAURANT';
+  const isGrocery = session?.user?.businessType === 'GROCERY';
   const isWaiter = session?.user?.role === 'WAITER';
 
   // Permission Check: Kitchen users not allowed here
@@ -677,7 +678,13 @@ export default function BillingPage() {
 
     setCart((prev) => {
       if (existingIndex !== -1) {
+        // Incrementing an existing PENDING cart line — not a dirty change
         return prev.map((p, i) => (i === existingIndex ? { ...p, quantity: p.quantity + 1 } : p));
+      }
+      // 'Dirty Cart' Exception: Adding a brand-new item to a loaded order
+      // Reset isLoadedCart so the button switches back to 'Update & Send to Kitchen'
+      if (isLoadedCart) {
+        setIsLoadedCart(false);
       }
       return [...prev, { product, variant, quantity: 1, status: 'PENDING', addedAt: new Date().toISOString(), isDirectServe: false }];
     });
@@ -1276,11 +1283,12 @@ export default function BillingPage() {
       setCartName('');
     }
 
-    if (isWaiter && isRestaurant) {
-      // Auto-title for Waiter
+    if (isRestaurant) {
+      // Auto-title for all Restaurant roles (Cashier, Waiter, Admin)
+      // No popup needed — table/token serves as the identifier
       const autoLabel = orderType === 'DINE_IN'
         ? `Table ${tableNumber || '?'}`
-        : `Token ${tokenNumber || '?'}`;
+        : `Token ${tokenNumber || new Date().toLocaleTimeString()}`;
       saveCart(autoLabel);
       return;
     }
@@ -1386,35 +1394,32 @@ export default function BillingPage() {
     // ONLINE: Save to server
     setLoading(true);
     try {
-      // Only pass id if we're updating a loaded cart, otherwise create new
+      // Pass currentHeldBillId regardless of isLoadedCart —
+      // isLoadedCart may have been reset by Dirty Cart logic but the bill ID is still valid.
       const res = await fetch('/api/held-bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload, id: (currentHeldBillId && isLoadedCart) ? currentHeldBillId : undefined }), // Update only if loaded cart
+        body: JSON.stringify({ data: payload, id: currentHeldBillId || undefined }),
       });
       if (!res.ok) throw new Error('Failed to save cart');
       const saved = await res.json();
 
       // Update local state and cache to keep them in sync
       let newHeldBills;
-      if (currentHeldBillId && isLoadedCart) {
+      if (currentHeldBillId) {
+        // Updated an existing bill — replace it in the list
         newHeldBills = heldBills.map((b) => (b.id === currentHeldBillId ? saved : b));
       } else {
+        // Created a brand-new bill — prepend it
         newHeldBills = [saved, ...heldBills];
-        setCurrentHeldBillId(null);
-        setIsLoadedCart(false);
       }
       setHeldBills(newHeldBills);
       localStorage.setItem('cached_held_bills', JSON.stringify(newHeldBills));
 
-      showSuccess(isWaiter && isRestaurant ? 'Order sent to kitchen' : 'Cart saved successfully');
+      showSuccess(isRestaurant ? 'Order sent to kitchen' : 'Cart saved successfully');
       setShowCartNamePrompt(false);
       setCartName('');
       startNewOrder();
-
-      if (isWaiter && isRestaurant) {
-        router.push('/cashier/held-bills');
-      }
     } catch (e: any) {
       // If network fails (even if navigator.onLine was true initially), fallback to offline save
       console.error('Save cart failed:', e);
@@ -1901,8 +1906,8 @@ export default function BillingPage() {
                 </select>
               </label>
             </div>
-            {/* Kitchen Note Field - Only for Restaurant */}
-            {isRestaurant && (
+            {/* Kitchen Note Field - Only for Restaurant, only for new (not loaded) orders */}
+            {isRestaurant && !isLoadedCart && (
               <div className="mt-4 p-3 bg-blue-50 bg-opacity-50 border border-blue-100 rounded-lg">
                 <label className="block text-sm font-semibold text-blue-800 mb-1">Kitchen Note (Special Instructions)</label>
                 <textarea
@@ -2043,13 +2048,35 @@ export default function BillingPage() {
 
           <div className="flex gap-2">
             {!isWaiter ? (
-              <button
-                disabled={loading || cart.length === 0}
-                onClick={checkout}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded disabled:opacity-50"
-              >
-                {loading ? 'Processing...' : 'Checkout'}
-              </button>
+              /* Smart Workflow Button for Cashier */
+              (() => {
+                const hasPendingItems = cart.some(item => !item.status || item.status === 'PENDING');
+                // Status Check: "Proceed to Payment" ONLY if (Grocery OR (Loaded AND No Pending Items))
+                const showCheckout = isGrocery || (isLoadedCart && !hasPendingItems);
+
+                if (showCheckout) {
+                  return (
+                    <button
+                      disabled={loading || cart.length === 0}
+                      onClick={checkout}
+                      className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 font-bold text-lg shadow-sm"
+                    >
+                      {loading ? 'Processing...' : 'Proceed to Payment'}
+                    </button>
+                  );
+                } else {
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => handleSaveCartClick()}
+                      disabled={loading || cart.length === 0}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-medium"
+                    >
+                      {loading ? 'Sending...' : (currentHeldBillId && isLoadedCart) ? 'Update & Send to Kitchen' : 'Send to Kitchen'}
+                    </button>
+                  );
+                }
+              })()
             ) : (
               <button
                 type="button"

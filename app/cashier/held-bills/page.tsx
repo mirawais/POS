@@ -427,8 +427,8 @@ export default function HeldBillsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Held Bills</h1>
-          <p className="mt-2 text-gray-600">View and manage your saved carts (held bills).</p>
+          <h1 className="text-2xl font-semibold text-gray-900">{isRestaurant ? 'Kitchen Orders' : 'Held Bills'}</h1>
+          <p className="mt-2 text-gray-600">{isRestaurant ? 'View and manage kitchen orders.' : 'View and manage your saved carts (held bills).'}</p>
         </div>
         <button
           onClick={() => loadHeldBills()}
@@ -597,17 +597,17 @@ export default function HeldBillsPage() {
                     <button
                       onClick={() => handleDeleteClick(bill.id, cartLabel)}
                       disabled={
-                        isRestaurant && 
+                        isRestaurant &&
                         (bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status)) ||
-                        (role === 'WAITER' && bill.data?.orderStatus !== 'PENDING'))
+                          (['WAITER', 'CASHIER'].includes(role || '') && bill.data?.orderStatus !== 'PENDING'))
                       }
                       className="p-2 border border-red-100 rounded-lg hover:bg-red-50 text-red-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       title={
                         !isRestaurant ? "Delete" :
-                        bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status)) 
-                          ? "Cannot delete bill with items in preparation or served" :
-                        role === 'WAITER' && bill.data?.orderStatus !== 'PENDING' 
-                          ? "Waiters can only delete PENDING orders" : "Delete"
+                          bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status))
+                            ? "Cannot delete bill with items in preparation or served" :
+                            ['WAITER', 'CASHIER'].includes(role || '') && bill.data?.orderStatus !== 'PENDING'
+                              ? "Can only delete PENDING orders" : "Delete"
                       }
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -615,7 +615,7 @@ export default function HeldBillsPage() {
                       </svg>
                     </button>
                   </div>
-                  {bill.data?.orderStatus === 'READY' && role === 'WAITER' && (
+                  {bill.data?.orderStatus === 'READY' && ['WAITER', 'CASHIER'].includes(role || '') && (
                     <button
                       onClick={() => markAsServed(bill.id)}
                       className="mt-3 w-full py-2 bg-green-600 text-white rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm"
@@ -624,7 +624,7 @@ export default function HeldBillsPage() {
                     </button>
                   )}
 
-                  {role === 'WAITER' && bill.data?.orderStatus === 'SERVED' && (
+                  {['WAITER', 'CASHIER'].includes(role || '') && bill.data?.orderStatus === 'SERVED' && (
                     <button
                       onClick={() => requestBilling(bill.id)}
                       className="mt-2 w-full py-2 bg-blue-700 text-white rounded-lg font-bold hover:bg-blue-800 transition-colors shadow-sm flex items-center justify-center gap-2"

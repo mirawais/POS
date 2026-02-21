@@ -6,13 +6,25 @@ import { signOut, useSession } from 'next-auth/react';
 import { useState } from 'react';
 import { Menu, X, LogOut } from 'lucide-react';
 
-const links = [
+// Grocery / Default link order (original, unchanged)
+const groceryLinks = [
   { href: '/cashier/billing', label: 'Billing' },
   { href: '/cashier/held-bills', label: 'Held Bills' },
   { href: '/cashier/orders', label: 'Orders' },
   { href: '/cashier/exchanges', label: 'Returns/Exchanges' },
   { href: '/cashier/refunds', label: 'Refunds' },
   { href: '/cashier/pending-checkouts', label: 'Pending Checkouts' },
+  { href: '/cashier/summary', label: 'Summary' },
+  { href: '/cashier/settings', label: 'Settings' },
+];
+
+// Restaurant link order: Kitchen Orders after Billing, Pending Checkouts 3rd, no Returns/Exchanges
+const restaurantLinks = [
+  { href: '/cashier/billing', label: 'Billing' },
+  { href: '/cashier/held-bills', label: 'Kitchen Orders' },
+  { href: '/cashier/pending-checkouts', label: 'Pending Checkouts' },
+  { href: '/cashier/orders', label: 'Orders' },
+  { href: '/cashier/refunds', label: 'Refunds' },
   { href: '/cashier/summary', label: 'Summary' },
   { href: '/cashier/settings', label: 'Settings' },
 ];
@@ -25,23 +37,25 @@ export function CashierNav() {
   const role = session?.user?.role;
   const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
 
-  const filteredLinks = links.filter((link) => {
-    const isWaiter = role === 'WAITER';
-    const isCashier = role === 'CASHIER';
-    const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'RESTAURANT_ADMIN'].includes(role || '');
+  const isWaiter = role === 'WAITER';
+  const isCashier = role === 'CASHIER';
+  const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'RESTAURANT_ADMIN'].includes(role || '');
 
-    // 1. Waiter-Restaurant Case: Hide restricted menus
+  // Pick the correct link list based on business type
+  const baseLinks = isRestaurant ? restaurantLinks : groceryLinks;
+
+  const filteredLinks = baseLinks.filter((link) => {
+    // Waiter (Restaurant): only these pages
     if (isRestaurant && isWaiter) {
-      const allowedLabels = ['Billing', 'Held Bills', 'Summary', 'Settings'];
+      const allowedLabels = ['Billing', 'Kitchen Orders', 'Summary', 'Settings'];
       return allowedLabels.includes(link.label);
     }
 
-    // 2. Pending Checkouts: Visible only to Restaurant Cashiers/Admins
+    // Pending Checkouts: Restaurant Cashiers/Admins only
     if (link.label === 'Pending Checkouts') {
       return isRestaurant && (isCashier || isAdmin);
     }
 
-    // 3. For all other cases (including all Grocery clients), show everything
     return true;
   });
 
@@ -55,7 +69,6 @@ export function CashierNav() {
           <nav className="hidden md:flex items-center gap-1 text-sm bg-gray-50/50 p-1 rounded-lg border border-gray-100">
             {filteredLinks.map((link) => {
               const active = pathname?.startsWith(link.href);
-              const label = (link.label === 'Held Bills' && role === 'WAITER' && isRestaurant) ? 'Kitchen Orders' : link.label;
               return (
                 <Link
                   key={link.href}
@@ -65,7 +78,7 @@ export function CashierNav() {
                     : 'text-gray-600 hover:text-blue-600 hover:bg-gray-100'
                     }`}
                 >
-                  {label}
+                  {link.label}
                 </Link>
               );
             })}
@@ -101,7 +114,6 @@ export function CashierNav() {
           <nav className="flex flex-col p-4 space-y-2">
             {filteredLinks.map((link) => {
               const active = pathname?.startsWith(link.href);
-              const label = (link.label === 'Held Bills' && role === 'WAITER' && isRestaurant) ? 'Kitchen Orders' : link.label;
               return (
                 <Link
                   key={link.href}
@@ -112,7 +124,7 @@ export function CashierNav() {
                     : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                     }`}
                 >
-                  {label}
+                  {link.label}
                 </Link>
               );
             })}

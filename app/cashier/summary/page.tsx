@@ -3,9 +3,64 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 
+/** Build the [start, end] ISO strings for the "Business Day" window based on dayClosingTime.
+ *  Uses logic to determine if we are currently in the business day that started yesterday
+ *  or if a new business day has already started today.
+ */
+function buildDayWindow(closingTime: string): { start: string; end: string; label: string } {
+  const [hStr, mStr] = (closingTime || '00:00').split(':');
+  const h = parseInt(hStr, 10) || 0;
+  const m = parseInt(mStr, 10) || 0;
+  const now = new Date();
+
+  // 1. Create a Date object for 'Today' at the Closing Time
+  const closingToday = new Date(now);
+  closingToday.setHours(h, m, 0, 0);
+
+  let start: Date;
+  let end: Date;
+
+  // 2. Logic: If 'now' is BEFORE today's closing time,
+  // we are still in the business day that started YESTERDAY.
+  if (now < closingToday) {
+    start = new Date(closingToday);
+    start.setDate(start.getDate() - 1);
+    end = new Date(closingToday);
+  } else {
+    // If 'now' is AFTER today's closing time,
+    // a NEW business day has started TODAY.
+    start = new Date(closingToday);
+    end = new Date(closingToday);
+    end.setDate(end.getDate() + 1);
+  }
+
+  // 3. Midnight override (Standard 00:00 to 23:59)
+  if (h === 0 && m === 0) {
+    const dayStart = new Date(now);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(now);
+    dayEnd.setHours(23, 59, 59, 999);
+    return {
+      start: dayStart.toISOString(),
+      end: dayEnd.toISOString(),
+      label: `${dayStart.toLocaleDateString()} (Full Day)`,
+    };
+  }
+
+  const fmt = (d: Date) =>
+    `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    label: `${fmt(start)} → ${fmt(end)}`,
+  };
+}
+
 export default function CashierSummaryPage() {
   const { data: session } = useSession();
   const [loading, setLoading] = useState(true);
+  const [periodLabel, setPeriodLabel] = useState('');
   const [summary, setSummary] = useState({
     totalSales: 0,
     totalTax: 0,
@@ -22,10 +77,15 @@ export default function CashierSummaryPage() {
   const fetchSummary = async () => {
     try {
       setLoading(true);
-      // Date filter for specific day (Today)
-      const today = new Date();
-      const start = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-      const end = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+
+      // 1. Fetch admin's day closing time setting
+      const settingsRes = await fetch('/api/invoice-settings');
+      const settings = settingsRes.ok ? await settingsRes.json() : {};
+      const closingTime: string = settings?.dayClosingTime || '00:00';
+
+      // 2. Build the dynamic date window
+      const { start, end, label } = buildDayWindow(closingTime);
+      setPeriodLabel(label);
 
       // Fetch Sales
       const salesRes = await fetch(`/api/sales?startDate=${start}&endDate=${end}`);
@@ -36,6 +96,7 @@ export default function CashierSummaryPage() {
       const refundsRes = await fetch(`/api/refunds?startDate=${start}&endDate=${end}`);
       if (!refundsRes.ok) throw new Error('Failed to fetch refunds');
       const refunds = await refundsRes.json();
+
 
       const stats = {
         totalSales: 0,
@@ -128,7 +189,10 @@ export default function CashierSummaryPage() {
     }
   };
 
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
+    setMounted(true);
     fetchSummary();
   }, []);
 
@@ -179,7 +243,14 @@ export default function CashierSummaryPage() {
       <div className="flex justify-between items-center no-print">
         <div>
           <h1 className="text-2xl font-semibold">Daily Summary</h1>
-          <p className="mt-2 text-gray-600">Overview of your sales activity for today.</p>
+          <p className="mt-2 text-gray-600">
+            Overview of your sales activity for today.
+            {periodLabel && (
+              <span className="ml-2 text-xs bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full font-medium">
+                {periodLabel}
+              </span>
+            )}
+          </p>
         </div>
         <button
           onClick={handlePrint}
@@ -193,7 +264,7 @@ export default function CashierSummaryPage() {
       {/* Print Only Header */}
       <div className="print-only print-header">
         <h1 className="text-2xl font-bold">Daily Sales Report</h1>
-        <p className="text-gray-600">Generated on: {new Date().toLocaleString()}</p>
+        <p className="text-gray-600">Generated on: {mounted ? new Date().toLocaleString() : ''}</p>
         <p className="text-gray-600">Cashier: {session?.user?.name || 'Cashier'}</p>
       </div>
 

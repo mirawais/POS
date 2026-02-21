@@ -57,14 +57,61 @@ export async function POST(req: Request) {
   // If id is provided, update existing held bill
   if (id) {
     const existing = await prisma.heldBill.findFirst({
-      where: { id, clientId, cashierId },
+      where: { id, clientId },  // Cashier check removed: pending-checkouts flow loads bills from other cashiers
     });
     if (!existing) {
       return NextResponse.json({ error: 'Held bill not found' }, { status: 404 });
     }
+
+    // Smart item merge: preserve kitchen statuses of existing items,
+    // append only genuinely new items from the incoming payload.
+    const existingData = (existing.data as any) || {};
+    const existingCart: any[] = existingData.cart || [];
+    const incomingCart: any[] = data.cart || [];
+
+    // Build a map of existing items by product+variant key
+    const existingMap = new Map<string, any>();
+    for (const item of existingCart) {
+      const key = `${item.product?.id ?? item.productId}::${item.variant?.id ?? item.variantId ?? ''}`;
+      existingMap.set(key, item);
+    }
+
+    const mergedCart: any[] = [];
+    // Track which existing keys have been seen in incoming payload
+    const seenKeys = new Set<string>();
+
+    for (const incomingItem of incomingCart) {
+      const key = `${incomingItem.product?.id ?? incomingItem.productId}::${incomingItem.variant?.id ?? incomingItem.variantId ?? ''}`;
+      const existingItem = existingMap.get(key);
+
+      if (existingItem && ['PREPARING', 'READY', 'SERVED'].includes(existingItem.status)) {
+        // Preserve kitchen status — do not reset it
+        mergedCart.push({ ...existingItem, quantity: incomingItem.quantity });
+      } else {
+        // New item or still PENDING — use incoming (may have updated quantity)
+        mergedCart.push(incomingItem);
+      }
+      seenKeys.add(key);
+    }
+
+    // Re-append any existing items that were NOT in the incoming payload
+    // (e.g. PREPARING items the cashier removed from the cart view — keep them)
+    for (const existingItem of existingCart) {
+      const key = `${existingItem.product?.id ?? existingItem.productId}::${existingItem.variant?.id ?? existingItem.variantId ?? ''}`;
+      if (!seenKeys.has(key) && ['PREPARING', 'READY', 'SERVED'].includes(existingItem.status)) {
+        mergedCart.push(existingItem);
+      }
+    }
+
+    const mergedData = {
+      ...existingData,   // Preserve any fields not in the incoming payload
+      ...data,           // Apply updates (label, discounts, orderType, etc.)
+      cart: mergedCart,  // Override with the merged cart
+    };
+
     const updated = await prisma.heldBill.update({
       where: { id },
-      data: { data },
+      data: { data: mergedData },
     });
     return NextResponse.json(updated);
   }
