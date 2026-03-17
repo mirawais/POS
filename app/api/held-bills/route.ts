@@ -51,8 +51,15 @@ export async function POST(req: Request) {
   const clientId = user.clientId as string;
   const cashierId = user.id as string;
   const body = await req.json();
-  const { data, id } = body; // id is optional - if provided, update existing; otherwise create new
+  const { data, id, tokenName } = body; // id is optional - if provided, update existing; otherwise create new
   if (!data) return NextResponse.json({ error: 'No cart data' }, { status: 400 });
+
+  // Delivery Validation for Restaurants
+  if (user.businessType === 'RESTAURANT' && data.orderType === 'DELIVERY') {
+    if (!data.customerName?.trim() || !data.customerPhone?.trim() || !data.address?.trim()) {
+      return NextResponse.json({ error: 'Delivery orders require Customer Name, Phone, and Address' }, { status: 400 });
+    }
+  }
 
   // Helper to calculate overall orderStatus from cart items
   const calculateOrderStatus = (cartItems: any[]) => {
@@ -122,7 +129,10 @@ export async function POST(req: Request) {
 
     const updated = await prisma.heldBill.update({
       where: { id },
-      data: { data: mergedData },
+      data: {
+        data: mergedData,
+        tokenName: tokenName || data.tokenName || undefined
+      },
     });
     return NextResponse.json(updated);
   }
@@ -137,6 +147,7 @@ export async function POST(req: Request) {
     data: {
       clientId,
       cashierId,
+      tokenName: tokenName || data.tokenName || null,
       data: finalData,
     },
   });
@@ -175,12 +186,20 @@ export async function PATCH(req: Request) {
   const updatedData = {
     ...currentData,
     orderStatus: status,
-    cart: updatedCart
+    cart: updatedCart,
+    ...(status === 'WASTED' && body.wasteReason ? { wasteReason: body.wasteReason, wastedAt: new Date().toISOString() } : {}),
   };
+
+  // Prepare DB update payload
+  const dbUpdateData: any = { data: updatedData };
+  if (status === 'WASTED') {
+    dbUpdateData.wastedAt = new Date();
+    dbUpdateData.wasteReason = body.wasteReason || null;
+  }
 
   const updated = await prisma.heldBill.update({
     where: { id },
-    data: { data: updatedData },
+    data: dbUpdateData,
   });
 
   return NextResponse.json(updated);

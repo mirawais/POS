@@ -37,7 +37,16 @@ const menuGroups: MenuGroup[] = [
     title: 'Overview',
     items: [
       { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-      { href: '/admin/reports', label: 'Reports', icon: BarChart3 },
+    ],
+  },
+  {
+    title: 'Reports',
+    items: [
+      { href: '/admin/reports/dashboard', label: 'Dashboard', icon: BarChart3 },
+      { href: '/admin/reports/sales', label: 'Sales Report', icon: Receipt },
+      { href: '/admin/reports/products', label: 'Product Report', icon: Package },
+      { href: '/admin/reports/customers', label: 'Customers', icon: Users },
+      { href: '/admin/reports/orders', label: 'Order List', icon: ShoppingCart },
     ],
   },
   {
@@ -147,7 +156,7 @@ export function AdminSidebar() {
 
                 // Permission Mapping
                 if (item.href === '/admin/dashboard') return true;
-                if (item.href === '/admin/reports') return permissions.view_reports;
+                if (item.href.startsWith('/admin/reports')) return permissions.view_reports;
                 if (item.href === '/admin/products') return permissions.manage_products;
                 if (item.href === '/admin/categories') return permissions.manage_categories;
                 if (item.href === '/admin/raw-materials') return permissions.manage_raw_materials;

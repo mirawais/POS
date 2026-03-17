@@ -17,8 +17,9 @@ type OrderItem = {
 
 type KitchenOrder = {
     id: string;
+    tokenName?: string;
     data: {
-        orderType?: 'DINE_IN' | 'TAKEAWAY';
+        orderType?: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
         tableNumber?: string;
         tokenNumber?: string;
         orderStatus?: 'PENDING' | 'PREPARING' | 'READY';
@@ -200,8 +201,11 @@ export default function KitchenPage() {
                                 <div className={`p-4 border-b flex justify-between items-start ${isLate ? 'bg-red-50' : 'bg-gray-50'}`}>
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${orderType === 'DINE_IN' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
-                                                {orderType === 'DINE_IN' ? 'Dine-in' : 'Takeaway'}
+                                            <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${orderType === 'DINE_IN' ? 'bg-blue-100 text-blue-800' :
+                                                orderType === 'TAKEAWAY' ? 'bg-green-100 text-green-800' :
+                                                    'bg-purple-100 text-purple-800'
+                                                }`}>
+                                                {orderType === 'DINE_IN' ? 'Dine-in' : orderType === 'TAKEAWAY' ? 'Takeaway' : 'Delivery'}
                                             </span>
                                             {isLate && (
                                                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-600 text-white rounded text-xs font-black animate-bounce">
@@ -211,7 +215,9 @@ export default function KitchenPage() {
                                             )}
                                         </div>
                                         <h3 className="text-xl font-bold text-gray-900">
-                                            {orderType === 'DINE_IN' ? `Table ${tableNumber}` : `Token ${tokenNumber}`}
+                                            {orderType === 'DINE_IN'
+                                                ? `Table ${tableNumber || '?'}`
+                                                : (order.tokenName || (tokenNumber ? `Token ${tokenNumber}` : `Order #${order.id.slice(-6).toUpperCase()}`))}
                                         </h3>
                                     </div>
                                     <div className="flex items-center gap-1 text-gray-600 font-medium bg-white px-2 py-1 rounded border shadow-sm">

@@ -4,11 +4,15 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useToast } from '@/components/notifications/ToastContainer';
 import { signOut, useSession } from 'next-auth/react';
-import { Printer, Receipt } from 'lucide-react';
+import { Printer, Receipt, Trash2, Ban } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
+
+const WASTE_REASONS = ['Kitchen Accident', 'Waiter Mishap', 'Rider Accident', 'Customer Refused', 'Other'] as const;
+type WasteReason = typeof WASTE_REASONS[number];
 
 type HeldBill = {
   id: string;
+  tokenName?: string;
   data: {
     cart?: any[];
     cartDiscountType?: 'PERCENT' | 'AMOUNT';
@@ -16,10 +20,14 @@ type HeldBill = {
     couponCode?: string;
     taxId?: string;
     label?: string;
-    orderType?: 'DINE_IN' | 'TAKEAWAY';
+    orderType?: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
     tableNumber?: string;
     tokenNumber?: string;
-    orderStatus?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'BILLING_REQUESTED';
+    tokenName?: string;
+    customerName?: string;
+    customerPhone?: string;
+    address?: string;
+    orderStatus?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'BILLING_REQUESTED' | 'WASTED';
     kitchenNote?: string;
   };
   createdAt: string;
@@ -41,6 +49,11 @@ export default function HeldBillsPage() {
     id: '',
     label: ''
   });
+
+  // Waste Modal State
+  const [wasteModal, setWasteModal] = useState({ isOpen: false, billId: '' });
+  const [selectedWasteReason, setSelectedWasteReason] = useState<WasteReason>('Kitchen Accident');
+  const [wasting, setWasting] = useState(false);
 
   useEffect(() => {
     loadHeldBills();
@@ -245,6 +258,30 @@ export default function HeldBillsPage() {
       loadHeldBills();
     } catch (err: any) {
       showError(err.message || 'Failed to serve order');
+    }
+  };
+
+  const handleWasteClick = (billId: string) => {
+    setSelectedWasteReason('Kitchen Accident');
+    setWasteModal({ isOpen: true, billId });
+  };
+
+  const confirmWaste = async () => {
+    setWasting(true);
+    try {
+      const res = await fetch('/api/held-bills', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: wasteModal.billId, status: 'WASTED', wasteReason: selectedWasteReason }),
+      });
+      if (!res.ok) throw new Error('Failed to mark as wasted');
+      showSuccess(`Order marked as wasted: ${selectedWasteReason}`);
+      setWasteModal({ isOpen: false, billId: '' });
+      loadHeldBills();
+    } catch (err: any) {
+      showError(err.message || 'Failed to waste order');
+    } finally {
+      setWasting(false);
     }
   };
 
@@ -473,6 +510,7 @@ export default function HeldBillsPage() {
           {heldBills
             .filter(bill => {
               if (role === 'WAITER' && bill.data?.orderStatus === 'BILLING_REQUESTED') return false;
+              if (bill.data?.orderStatus === 'WASTED') return false; // Hide wasted from active list
               return true;
             })
             .map((bill) => {
@@ -486,7 +524,7 @@ export default function HeldBillsPage() {
                   <div className="mb-4">
                     <div className="flex justify-between items-start">
                       <h3 className="font-bold text-gray-900 line-clamp-1">
-                        {cartLabel || 'Unnamed Cart'}
+                        {bill.tokenName || cartLabel || 'Unnamed Cart'}
                       </h3>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">
@@ -530,12 +568,14 @@ export default function HeldBillsPage() {
                     {isRestaurant && bill.data?.orderType && (
                       <div className="flex justify-between text-sm bg-gray-50 p-1 rounded">
                         <span className="text-gray-600 font-medium">
-                          {bill.data.orderType === 'DINE_IN' ? 'Dine-in' : 'Takeaway'}
+                          {bill.data.orderType === 'DINE_IN' ? 'Dine-in' : bill.data.orderType === 'TAKEAWAY' ? 'Takeaway' : 'Delivery'}
                         </span>
                         <span className="font-bold text-gray-900">
                           {bill.data.orderType === 'DINE_IN'
                             ? `Table: ${bill.data.tableNumber || 'N/A'}`
-                            : `Token: ${bill.data.tokenNumber || 'N/A'}`}
+                            : bill.data.orderType === 'DELIVERY'
+                              ? (bill.data.customerName || bill.tokenName || 'N/A')
+                              : (bill.tokenName || bill.data.tokenNumber || 'N/A')}
                         </span>
                       </div>
                     )}
@@ -594,26 +634,39 @@ export default function HeldBillsPage() {
                     >
                       <Printer className="w-5 h-5 text-gray-600" />
                     </button>
-                    <button
-                      onClick={() => handleDeleteClick(bill.id, cartLabel)}
-                      disabled={
-                        isRestaurant &&
-                        (bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status)) ||
-                          (['WAITER', 'CASHIER'].includes(role || '') && bill.data?.orderStatus !== 'PENDING'))
+                    {/* Delete and Waste Logic */}
+                    {(() => {
+                      const orderStatus = bill.data?.orderStatus || 'PENDING';
+
+                      // Stages where food is NOT prepared (PENDING) -> Show Delete (Gray Trash2)
+                      if (orderStatus === 'PENDING') {
+                        return (
+                          <button
+                            onClick={() => handleDeleteClick(bill.id, cartLabel)}
+                            className="p-2 border border-red-100 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
+                            title="Delete Order"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </button>
+                        );
                       }
-                      className="p-2 border border-red-100 rounded-lg hover:bg-red-50 text-red-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title={
-                        !isRestaurant ? "Delete" :
-                          bill.data?.cart?.some((i: any) => ['PREPARING', 'READY', 'SERVED'].includes(i.status))
-                            ? "Cannot delete bill with items in preparation or served" :
-                            ['WAITER', 'CASHIER'].includes(role || '') && bill.data?.orderStatus !== 'PENDING'
-                              ? "Can only delete PENDING orders" : "Delete"
+
+                      // Stages where food IS prepared (PREPARING, READY, SERVED, BILLING_REQUESTED) -> Show Waste (Red Ban)
+                      // Only for Restaurant clients
+                      if (isRestaurant && ['PREPARING', 'READY', 'SERVED', 'BILLING_REQUESTED'].includes(orderStatus)) {
+                        return (
+                          <button
+                            onClick={() => handleWasteClick(bill.id)}
+                            className="p-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                            title="Mark as Wasted/Void"
+                          >
+                            <Ban className="h-5 w-5" />
+                          </button>
+                        );
                       }
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </button>
+
+                      return null;
+                    })()}
                   </div>
                   {bill.data?.orderStatus === 'READY' && ['WAITER', 'CASHIER'].includes(role || '') && (
                     <button
@@ -648,6 +701,46 @@ export default function HeldBillsPage() {
         onConfirm={confirmDelete}
         onCancel={() => setDeleteModal({ isOpen: false, id: '', label: '' })}
       />
+
+      {/* Waste/Void Modal */}
+      {wasteModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Mark Order as Wasted</h3>
+            <p className="text-sm text-gray-500 mb-4">Select the reason for voiding this order.</p>
+            <div className="space-y-2 mb-6">
+              {WASTE_REASONS.map(reason => (
+                <label key={reason} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="radio"
+                    name="wasteReason"
+                    value={reason}
+                    checked={selectedWasteReason === reason}
+                    onChange={() => setSelectedWasteReason(reason)}
+                    className="text-red-600"
+                  />
+                  <span className="text-sm font-medium text-gray-800">{reason}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setWasteModal({ isOpen: false, billId: '' })}
+                className="flex-1 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmWaste}
+                disabled={wasting}
+                className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {wasting ? 'Processing...' : 'Confirm Waste'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

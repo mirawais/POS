@@ -39,6 +39,7 @@ model Client {
   refundItems       RefundItem[]
   variantAttributes VariantAttribute[]
   fbrSetting        FBRSetting?
+  riders            Rider[]
 }
 
 enum Role {
@@ -207,6 +208,7 @@ model FBRSetting {
 enum OrderType {
   DINE_IN
   TAKEAWAY
+  DELIVERY
 }
 
 enum OrderStatus {
@@ -215,6 +217,10 @@ enum OrderStatus {
   READY
   SERVED
   BILLING_REQUESTED
+  READY_FOR_PICKUP
+  ON_THE_WAY
+  COMPLETED
+  WASTED
 }
 
 model Sale {
@@ -241,6 +247,12 @@ model Sale {
   customerName  String?    @map("customer_name")
   customerPhone String?    @map("customer_phone")
   kitchenNote   String?    @map("kitchen_note")
+  address       String?    @map("address")
+  riderName     String?    @map("rider_name")
+  dispatchedAt  DateTime?  @map("dispatched_at")
+  deliveredAt   DateTime?  @map("delivered_at")
+  wasteReason   String?    @map("waste_reason")
+  wastedAt      DateTime?  @map("wasted_at")
   items         SaleItem[]
   refunds       Refund[]
 }
@@ -265,13 +277,16 @@ model SaleItem {
 }
 
 model HeldBill {
-  id        String   @id @default(cuid())
-  clientId  String   @map("client_id")
-  client    Client   @relation(fields: [clientId], references: [id])
-  cashierId String   @map("cashier_id")
-  cashier   User     @relation(fields: [cashierId], references: [id])
-  data      Json
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String    @id @default(cuid())
+  clientId    String    @map("client_id")
+  client      Client    @relation(fields: [clientId], references: [id])
+  cashierId   String    @map("cashier_id")
+  cashier     User      @relation(fields: [cashierId], references: [id])
+  tokenName   String?   @map("token_name")
+  wasteReason String?   @map("waste_reason")
+  wastedAt    DateTime? @map("wasted_at")
+  data        Json
+  createdAt   DateTime  @default(now()) @map("created_at")
 }
 
 model Category {
@@ -372,4 +387,22 @@ model VariantAttribute {
   values    Json // Array of possible values: ["S", "M", "L"] or ["Red", "Blue"]
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+}
+
+enum RiderStatus {
+  FREE
+  ON_DELIVERY
+}
+
+model Rider {
+  id               String      @id @default(cuid())
+  clientId         String      @map("client_id")
+  client           Client      @relation(fields: [clientId], references: [id])
+  name             String
+  phone            String
+  idCard           String?     @map("id_card")
+  status           RiderStatus @default(FREE)
+  failedDeliveries Int         @default(0) @map("failed_deliveries")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
 }

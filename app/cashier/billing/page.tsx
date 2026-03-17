@@ -101,9 +101,10 @@ export default function BillingPage() {
   const ITEMS_PER_PAGE = 50;
 
   // Restaurant Mode State
-  const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY'>('DINE_IN');
+  const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>('DINE_IN');
   const [tableNumber, setTableNumber] = useState('');
   const [tokenNumber, setTokenNumber] = useState<string>('');
+  const [address, setAddress] = useState('');
   const [kitchenNote, setKitchenNote] = useState('');
 
   // Token Generation Logic
@@ -219,9 +220,12 @@ export default function BillingPage() {
       const savedCart = data.cart || [];
 
       // Restore Restaurant Fields
-      if (data.orderType) setOrderType(data.orderType);
-      if (data.tableNumber) setTableNumber(data.tableNumber);
-      if (data.tokenNumber) setTokenNumber(data.tokenNumber);
+      setOrderType(data.orderType || 'DINE_IN');
+      setTableNumber(data.tableNumber || '');
+      setTokenNumber(data.tokenNumber || '');
+      setAddress(data.address || '');
+      setCustomerName(data.customerName || '');
+      setCustomerPhone(data.customerPhone || '');
       setKitchenNote(data.kitchenNote || '');
 
       // Reconstruct cart with full product objects
@@ -935,6 +939,14 @@ export default function BillingPage() {
   }, []);
 
   const confirmCheckout = async () => {
+    // Delivery Validation for Restaurants
+    if (isRestaurant && orderType === 'DELIVERY') {
+      if (!customerName?.trim() || !customerPhone?.trim() || !address?.trim()) {
+        showError('Delivery orders require Customer Name, Phone, and Address');
+        return;
+      }
+    }
+
     setLoading(true);
     setShowPaymentModal(false);
 
@@ -958,8 +970,9 @@ export default function BillingPage() {
       orderType: isRestaurant ? orderType : undefined,
       tableNumber: (isRestaurant && orderType === 'DINE_IN') ? tableNumber :
         (isRestaurant && orderType === 'TAKEAWAY') ? tokenNumber : undefined,
-      orderStatus: isRestaurant ? 'PENDING' : undefined,
+      orderStatus: (isRestaurant && orderType === 'DELIVERY') ? 'READY_FOR_PICKUP' : (isRestaurant ? 'PENDING' : undefined),
       kitchenNote: kitchenNote || null,
+      address: (isRestaurant && orderType === 'DELIVERY') ? address : null,
     };
 
     // Increment Token Counter if Takeaway
@@ -1253,6 +1266,7 @@ export default function BillingPage() {
     setCustomerName('');
     setCustomerPhone('');
     setKitchenNote('');
+    setAddress('');
     setIsLoadedCart(false); // Clear loaded cart flag
 
     // Reset Restaurant Fields
@@ -1302,8 +1316,23 @@ export default function BillingPage() {
       return;
     }
 
+    // Delivery Validation for Restaurants
+    if (isRestaurant && orderType === 'DELIVERY') {
+      if (!customerName?.trim() || !customerPhone?.trim() || !address?.trim()) {
+        showError('Delivery orders require Customer Name, Phone, and Address before saving');
+        return;
+      }
+    }
+
     // Prepare payload first
     const existingLabel = (currentHeldBillId && isLoadedCart) ? heldBills.find(b => b.id === currentHeldBillId)?.data?.label : null;
+    // Token Generation Logic
+    let generatedTokenName = tokenNumber;
+    if (isRestaurant && orderType !== 'DINE_IN' && !tokenNumber) {
+      const now = new Date();
+      generatedTokenName = `TKN-${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    }
+
     const payload = {
       cart: cart.map(item => {
         // Direct Serve Logic: If toggled ON and still PENDING, set to SERVED immediately
@@ -1317,12 +1346,16 @@ export default function BillingPage() {
       couponCode: validatedCoupon?.code || couponCode || null,
       taxId,
       label: name || cartName || existingLabel || `Cart ${new Date().toLocaleString()}`,
+      tokenName: generatedTokenName || null,
       // Restaurant Fields
       orderType: isRestaurant ? orderType : undefined,
       tableNumber: (isRestaurant && orderType === 'DINE_IN') ? tableNumber : undefined,
       tokenNumber: (isRestaurant && orderType === 'TAKEAWAY') ? tokenNumber : undefined,
       orderStatus: 'PENDING',
       kitchenNote: kitchenNote || null,
+      address: (isRestaurant && orderType === 'DELIVERY') ? address : null,
+      customerName: isRestaurant ? customerName || null : undefined,
+      customerPhone: isRestaurant ? customerPhone || null : undefined,
     };
 
     // Increment Token Counter if Takeaway (New Save Only)
@@ -1399,7 +1432,11 @@ export default function BillingPage() {
       const res = await fetch('/api/held-bills', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: payload, id: currentHeldBillId || undefined }),
+        body: JSON.stringify({
+          data: payload,
+          id: currentHeldBillId || undefined,
+          tokenName: payload.tokenName
+        }),
       });
       if (!res.ok) throw new Error('Failed to save cart');
       const saved = await res.json();
@@ -1695,6 +1732,14 @@ export default function BillingPage() {
                 >
                   Takeaway
                 </button>
+                {session?.user?.role === 'CASHIER' && (
+                  <button
+                    onClick={() => setOrderType('DELIVERY')}
+                    className={`flex-1 py-1 text-sm font-medium rounded ${orderType === 'DELIVERY' ? 'bg-blue-600 text-white' : 'bg-white border text-gray-700'}`}
+                  >
+                    Delivery
+                  </button>
+                )}
               </div>
 
               {orderType === 'DINE_IN' ? (
@@ -1708,10 +1753,21 @@ export default function BillingPage() {
                     placeholder="e.g. 5, A1"
                   />
                 </div>
-              ) : (
+              ) : orderType === 'TAKEAWAY' ? (
                 <div className="flex items-center justify-between bg-white border rounded px-3 py-1">
                   <span className="text-sm font-semibold text-gray-700">Token Number:</span>
                   <span className="text-lg font-bold text-blue-600">{tokenNumber || '...'}</span>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">Delivery Address <span className="text-red-500">*</span></label>
+                  <textarea
+                    rows={2}
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    className={`w-full border rounded px-2 py-1 text-sm ${!address ? 'border-red-300 bg-red-50/30' : ''}`}
+                    placeholder="Enter full delivery address..."
+                  />
                 </div>
               )}
             </div>
@@ -1721,17 +1777,17 @@ export default function BillingPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
               <input
                 type="text"
-                placeholder="Customer Name (Optional)"
+                placeholder={`Customer Name ${isRestaurant && orderType === 'DELIVERY' ? '*' : '(Optional)'}`}
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
-                className="border rounded px-2 py-1 text-sm"
+                className={`border rounded px-2 py-1 text-sm ${isRestaurant && orderType === 'DELIVERY' && !customerName ? 'border-red-300 bg-red-50/30' : ''}`}
               />
               <input
                 type="text"
-                placeholder="Customer Phone (Optional)"
+                placeholder={`Customer Phone ${isRestaurant && orderType === 'DELIVERY' ? '*' : '(Optional)'}`}
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
-                className="border rounded px-2 py-1 text-sm"
+                className={`border rounded px-2 py-1 text-sm ${isRestaurant && orderType === 'DELIVERY' && !customerPhone ? 'border-red-300 bg-red-50/30' : ''}`}
               />
             </div>
           )}

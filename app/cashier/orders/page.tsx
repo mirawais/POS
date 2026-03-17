@@ -30,6 +30,9 @@ type Sale = {
   fbrInvoiceId?: string | null;
   type?: string;
   refunds?: { id: string; total: number }[];
+  orderStatus?: string;
+  wasteReason?: string | null;
+  wastedAt?: string | null;
 };
 
 export default function CashierOrdersPage() {
@@ -261,6 +264,11 @@ export default function CashierOrdersPage() {
                         Refunded
                       </span>
                     )}
+                    {sale.orderStatus === 'WASTED' && (
+                      <span className="ml-2 text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded font-medium border border-gray-200 uppercase">
+                        Wasted
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-gray-600">
                     {new Date(sale.createdAt).toLocaleString()} • {sale.items.length} item(s)
@@ -291,6 +299,12 @@ export default function CashierOrdersPage() {
                 <p className="text-sm text-gray-600">
                   Cashier: {selectedSale.cashier?.name || selectedSale.cashier?.email || 'Unknown'}
                 </p>
+                {selectedSale.orderStatus === 'WASTED' && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-100 rounded text-red-800 text-xs">
+                    <strong>WASTED ORDER:</strong> {selectedSale.wasteReason || 'No reason provided'}
+                    {selectedSale.wastedAt && ` • ${new Date(selectedSale.wastedAt).toLocaleString()}`}
+                  </div>
+                )}
               </div>
               <div className="flex gap-2">
                 <button

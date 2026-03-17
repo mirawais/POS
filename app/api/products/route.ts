@@ -248,7 +248,6 @@ export async function PATCH(req: Request) {
 
         const attributes: any = v.attributes || {};
         return {
-          productId: id,
           name: v.name || null,
           sku: v.sku || null,
           price: variantPrice,

@@ -23,6 +23,8 @@ const restaurantLinks = [
   { href: '/cashier/billing', label: 'Billing' },
   { href: '/cashier/held-bills', label: 'Kitchen Orders' },
   { href: '/cashier/pending-checkouts', label: 'Pending Checkouts' },
+  { href: '/cashier/delivery-manager', label: 'Delivery Manager' },
+  { href: '/cashier/rider-management', label: 'Riders' },
   { href: '/cashier/orders', label: 'Orders' },
   { href: '/cashier/refunds', label: 'Refunds' },
   { href: '/cashier/summary', label: 'Summary' },
@@ -51,8 +53,8 @@ export function CashierNav() {
       return allowedLabels.includes(link.label);
     }
 
-    // Pending Checkouts: Restaurant Cashiers/Admins only
-    if (link.label === 'Pending Checkouts') {
+    // RESTRICTED: Restaurant Cashiers/Admins only
+    if (['Pending Checkouts', 'Delivery Manager', 'Riders'].includes(link.label)) {
       return isRestaurant && (isCashier || isAdmin);
     }
 

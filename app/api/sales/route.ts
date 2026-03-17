@@ -67,6 +67,10 @@ export async function GET(req: Request) {
     if (cashierId) where.cashierId = cashierId;
     if (orderId) where.orderId = { contains: orderId, mode: 'insensitive' };
 
+    if (searchParams.get('deliveryOnly') === 'true') {
+      where.orderType = 'DELIVERY';
+    }
+
     const sales = await prisma.sale.findMany({
       where,
       include: {
@@ -108,10 +112,29 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { items, cartDiscountType, cartDiscountValue, couponCode, taxId, heldBillId, paymentMethod = 'CASH', kitchenNote } = body ?? {};
+    const {
+      items,
+      cartDiscountType,
+      cartDiscountValue,
+      couponCode,
+      taxId,
+      heldBillId,
+      paymentMethod = 'CASH',
+      kitchenNote,
+      orderType,
+      orderStatus,
+      address
+    } = body ?? {};
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'No items' }, { status: 400 });
     if (!['CASH', 'CARD'].includes(paymentMethod)) {
       return NextResponse.json({ error: 'Payment method must be CASH or CARD' }, { status: 400 });
+    }
+
+    // Delivery Validation for Restaurants
+    if (user.businessType === 'RESTAURANT' && orderType === 'DELIVERY') {
+      if (!body.customerName?.trim() || !body.customerPhone?.trim() || !address?.trim()) {
+        return NextResponse.json({ error: 'Delivery orders require Customer Name, Phone, and Address' }, { status: 400 });
+      }
     }
 
     const productIds = items.map((i: LineInput) => i.productId);
@@ -225,6 +248,10 @@ export async function POST(req: Request) {
           paymentMethod: paymentMethod,
           customerName: body.customerName || null,
           customerPhone: body.customerPhone || null,
+          orderType: orderType || null,
+          orderStatus: orderStatus || null,
+          address: address || null,
+          kitchenNote: kitchenNote || null,
         },
       });
 
