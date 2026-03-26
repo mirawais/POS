@@ -29,8 +29,10 @@ type HeldBill = {
     address?: string;
     orderStatus?: 'PENDING' | 'PREPARING' | 'READY' | 'SERVED' | 'BILLING_REQUESTED' | 'WASTED';
     kitchenNote?: string;
+    deliveryDate?: string;
   };
   createdAt: string;
+  deliveryDate?: string | null;
 };
 
 export default function HeldBillsPage() {
@@ -41,7 +43,8 @@ export default function HeldBillsPage() {
   const { showError, showSuccess, showToast } = useToast();
 
   const role = session?.user?.role;
-  const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
+  const isRestaurant = (session?.user as any)?.businessType === 'RESTAURANT';
+  const isCloudKitchen = (session?.user as any)?.businessType === 'CLOUD_KITCHEN';
 
   // Modal State
   const [deleteModal, setDeleteModal] = useState({
@@ -288,11 +291,36 @@ export default function HeldBillsPage() {
   const calculateCartTotal = (bill: HeldBill) => {
     const cart = bill.data?.cart || [];
     let subtotal = 0;
+    let itemDiscountTotal = 0;
+
     cart.forEach((item: any) => {
+      if (item.status === 'REJECTED') return;
       const price = item.variant?.price ?? item.product?.price ?? 0;
-      subtotal += price * (item.quantity || 1);
+      const qty = item.quantity || 1;
+      const base = price * qty;
+      subtotal += base;
+
+      if (item.discountType && item.discountValue) {
+        const disc = item.discountType === 'PERCENT'
+          ? (base * item.discountValue) / 100
+          : item.discountValue * qty;
+        itemDiscountTotal += disc;
+      }
     });
-    return subtotal;
+
+    const afterItemDiscount = Math.max(0, subtotal - itemDiscountTotal);
+
+    let cartDiscountTotal = 0;
+    const cdv = bill.data?.cartDiscountValue ?? 0;
+    if (cdv > 0) {
+      cartDiscountTotal = bill.data?.cartDiscountType === 'PERCENT'
+        ? (afterItemDiscount * cdv) / 100
+        : cdv;
+    }
+
+    const totalDiscount = itemDiscountTotal + cartDiscountTotal;
+    const total = Math.max(0, subtotal - totalDiscount);
+    return { subtotal, itemDiscountTotal, cartDiscountTotal, totalDiscount, total };
   };
 
   const getItemCount = (bill: HeldBill) => {
@@ -464,8 +492,12 @@ export default function HeldBillsPage() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">{isRestaurant ? 'Kitchen Orders' : 'Held Bills'}</h1>
-          <p className="mt-2 text-gray-600">{isRestaurant ? 'View and manage kitchen orders.' : 'View and manage your saved carts (held bills).'}</p>
+          <h1 className="text-2xl font-semibold text-gray-900">
+            {isCloudKitchen ? 'Scheduled Orders' : isRestaurant ? 'Kitchen Orders' : 'Held Bills'}
+          </h1>
+          <p className="mt-2 text-gray-600">
+            {isCloudKitchen ? 'View and manage your scheduled cloud kitchen orders.' : isRestaurant ? 'View and manage kitchen orders.' : 'View and manage your saved carts (held bills).'}
+          </p>
         </div>
         <button
           onClick={() => loadHeldBills()}
@@ -516,7 +548,7 @@ export default function HeldBillsPage() {
             .map((bill) => {
               const cartLabel = bill.data?.label;
               const itemCount = getItemCount(bill);
-              const estimatedTotal = calculateCartTotal(bill);
+              const totals = calculateCartTotal(bill);
               const savedDate = new Date(bill.createdAt);
 
               return (
@@ -527,6 +559,9 @@ export default function HeldBillsPage() {
                         {bill.tokenName || cartLabel || 'Unnamed Cart'}
                       </h3>
                     </div>
+                    {isCloudKitchen && bill.data?.customerName && (
+                      <p className="text-xs text-blue-700 font-semibold mt-0.5">👤 {bill.data.customerName}</p>
+                    )}
                     <p className="text-xs text-gray-500 mt-1">
                       {savedDate.toLocaleString()}
                     </p>
@@ -608,15 +643,41 @@ export default function HeldBillsPage() {
                           })}
                         </ul>
                       </div>
+                    ) : isCloudKitchen ? (
+                      <div className="mt-2 space-y-1">
+                         <p className="text-xs font-bold text-gray-500 uppercase tracking-wider border-b pb-0.5 mb-1">Items</p>
+                         {((bill.data as any)?.cart || []).filter((i: any) => i.status !== 'REJECTED').map((item: any, idx: number) => (
+                           <div key={idx} className="text-sm text-gray-700 flex justify-between items-start gap-2">
+                             <span className="font-medium">{item.quantity}x {item.product?.name || 'Product'}</span>
+                             {item.variant && <span className="text-[10px] text-gray-500 italic ml-auto">({item.variant.name})</span>}
+                           </div>
+                         ))}
+                      </div>
                     ) : (
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Items:</span>
                         <span className="font-semibold text-gray-900">{itemCount}</span>
                       </div>
                     )}
+                    {/* Cloud Kitchen: Delivery Date Display */}
+                    {isCloudKitchen && (bill.deliveryDate || bill.data?.deliveryDate) && (
+                      <div className="mt-2 p-2 bg-orange-50 border border-orange-200 rounded-lg">
+                        <p className="text-xs font-bold text-orange-700 uppercase tracking-wide">📅 Delivery Scheduled</p>
+                        <p className="text-sm font-semibold text-orange-900 mt-0.5">
+                          {new Date(bill.deliveryDate || bill.data?.deliveryDate || '').toLocaleString()}
+                        </p>
+                      </div>
+                    )}
+
+                    {isCloudKitchen && totals.totalDiscount > 0 && (
+                      <div className="flex justify-between text-sm text-amber-700">
+                        <span>Discount:</span>
+                        <span className="font-semibold">- Rs. {totals.totalDiscount.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-500">Estimated Total:</span>
-                      <span className="font-semibold text-blue-600">Rs. {estimatedTotal.toLocaleString()}</span>
+                      <span className="font-semibold text-blue-600">Rs. {totals.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                     </div>
                   </div>
 
@@ -625,7 +686,7 @@ export default function HeldBillsPage() {
                       onClick={() => handleLoad(bill)}
                       className="flex-grow px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold transition-colors"
                     >
-                      Load Cart
+                      {isCloudKitchen ? 'Load to Cart' : 'Load Cart'}
                     </button>
                     <button
                       onClick={() => printHeldBill(bill)}
@@ -684,6 +745,35 @@ export default function HeldBillsPage() {
                     >
                       <Receipt className="w-4 h-4" />
                       Generate Bill
+                    </button>
+                  )}
+
+                  {/* Cloud Kitchen: Generate Bill -> Mark READY_FOR_PAYMENT and redirect */}
+                  {isCloudKitchen && (
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/held-bills', {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              id: bill.id,
+                              status: 'READY_FOR_PAYMENT'
+                            }),
+                          });
+                          if (res.ok) {
+                            router.push('/cashier/ready-to-checkout');
+                          } else {
+                            alert('Failed to update order status');
+                          }
+                        } catch (err) {
+                          console.error(err);
+                          alert('Error moving order to checkout');
+                        }
+                      }}
+                      className="mt-2 w-full py-2 bg-emerald-600 text-white rounded-lg font-bold hover:bg-emerald-700 transition-colors shadow-sm flex items-center justify-center gap-2"
+                    >
+                      <Receipt className="w-4 h-4" /> Generate Bill
                     </button>
                   )}
                 </div>

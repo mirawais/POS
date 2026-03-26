@@ -31,20 +31,32 @@ const restaurantLinks = [
   { href: '/cashier/settings', label: 'Settings' },
 ];
 
+// Cloud Kitchen: New Workflow — Billing → Scheduled Orders → Ready to Checkout
+const cloudKitchenLinks = [
+  { href: '/cashier/billing', label: 'Billing' },
+  { href: '/cashier/held-bills', label: 'Scheduled Orders' },
+  { href: '/cashier/ready-to-checkout', label: 'Ready to Checkout' },
+  { href: '/cashier/orders', label: 'Orders' },
+  { href: '/cashier/refunds', label: 'Refunds' },
+  { href: '/cashier/summary', label: 'Summary' },
+  { href: '/cashier/settings', label: 'Settings' },
+];
+
 export function CashierNav() {
   const pathname = usePathname();
   const { data: session } = useSession();
   const [isOpen, setIsOpen] = useState(false);
 
   const role = session?.user?.role;
-  const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
+  const isRestaurant = (session?.user as any)?.businessType === 'RESTAURANT';
+  const isCloudKitchen = (session?.user as any)?.businessType === 'CLOUD_KITCHEN';
 
   const isWaiter = role === 'WAITER';
   const isCashier = role === 'CASHIER';
   const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'RESTAURANT_ADMIN'].includes(role || '');
 
   // Pick the correct link list based on business type
-  const baseLinks = isRestaurant ? restaurantLinks : groceryLinks;
+  const baseLinks = isCloudKitchen ? cloudKitchenLinks : isRestaurant ? restaurantLinks : groceryLinks;
 
   const filteredLinks = baseLinks.filter((link) => {
     // Waiter (Restaurant): only these pages
@@ -58,7 +70,18 @@ export function CashierNav() {
       return isRestaurant && (isCashier || isAdmin);
     }
 
+    // CLOUD KITCHEN: Disable Returns/Exchanges
+    if (isCloudKitchen && link.label === 'Returns/Exchanges') {
+      return false;
+    }
+
     return true;
+  }).map(link => {
+    // Dynamically rename 'Held Bills' to 'Scheduled Orders' for Cloud Kitchen
+    if (isCloudKitchen && link.label === 'Held Bills') {
+      return { ...link, label: 'Scheduled Orders' };
+    }
+    return link;
   });
 
   return (

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { WifiOff } from 'lucide-react';
+import { useSession } from 'next-auth/react';
+import { WifiOff, Ban } from 'lucide-react';
 
 type SaleItem = {
   id: string;
@@ -39,6 +40,7 @@ type Product = {
 export default function CashierExchangesPage() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const { data: session } = useSession();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
@@ -108,6 +110,7 @@ export default function CashierExchangesPage() {
   const [fbrInvoiceId, setFbrInvoiceId] = useState<string | null>(null);
   const { showError, showSuccess } = { showError: setMessage, showSuccess: setMessage }; // Simple adapter for now, or import useToast if available
   const [isOnline, setIsOnline] = useState(true);
+  const isCloudKitchen = (session as any)?.user?.businessType === 'CLOUD_KITCHEN';
 
   useEffect(() => {
     setIsOnline(navigator.onLine);
@@ -351,7 +354,17 @@ export default function CashierExchangesPage() {
 
   return (
     <div className="space-y-6">
-      {!isOnline ? (
+      {isCloudKitchen && (
+        <div className="flex flex-col items-center justify-center p-8 bg-white rounded border h-64 text-center">
+          <Ban size={48} className="text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-700">Feature Disabled</h2>
+          <p className="text-gray-500 mt-2 max-w-sm">
+            Returns and Exchanges are not available for Cloud Kitchen clients.
+          </p>
+        </div>
+      )}
+
+      {!isCloudKitchen && !isOnline ? (
         <div className="flex flex-col items-center justify-center p-8 bg-white rounded border h-64 text-center">
           <WifiOff size={48} className="text-gray-400 mb-4" />
           <h2 className="text-xl font-semibold text-gray-700">Feature Unavailable Offline</h2>

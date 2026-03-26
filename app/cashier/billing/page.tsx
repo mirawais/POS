@@ -65,6 +65,7 @@ export default function BillingPage() {
   const { data: session } = useSession();
   const isRestaurant = session?.user?.businessType === 'RESTAURANT';
   const isGrocery = session?.user?.businessType === 'GROCERY';
+  const isCloudKitchen = (session?.user as any)?.businessType === 'CLOUD_KITCHEN';
   const isWaiter = session?.user?.role === 'WAITER';
 
   // Permission Check: Kitchen users not allowed here
@@ -74,6 +75,27 @@ export default function BillingPage() {
       router.push('/kitchen');
     }
   }, [session, router]);
+
+  // Handle URL parameters for loading held bills and auto-checkout (used by Ready to Checkout flow)
+  useEffect(() => {
+    if (!heldBills.length) return;
+    
+    const searchParams = new URLSearchParams(window.location.search);
+    const loadHeldBillId = searchParams.get('loadHeldBillId');
+    const autoCheckout = searchParams.get('autoCheckout');
+
+    if (loadHeldBillId) {
+      const bill = heldBills.find(b => b.id === loadHeldBillId);
+      if (bill) {
+        loadHeldBill(bill);
+        if (autoCheckout === 'true') {
+          setShowPaymentModal(true);
+        }
+        // Clean up URL
+        router.replace('/cashier/billing');
+      }
+    }
+  }, [heldBills, router]);
 
   const [newOrderModalOpen, setNewOrderModalOpen] = useState(false);
   const [showHeld, setShowHeld] = useState(false);
@@ -107,6 +129,9 @@ export default function BillingPage() {
   const [tokenNumber, setTokenNumber] = useState<string>('');
   const [address, setAddress] = useState('');
   const [kitchenNote, setKitchenNote] = useState('');
+
+  // Cloud Kitchen Mode State
+  const [deliveryDate, setDeliveryDate] = useState('');
 
   // Token Generation Logic
   useEffect(() => {
@@ -225,9 +250,20 @@ export default function BillingPage() {
       setTableNumber(data.tableNumber || '');
       setTokenNumber(data.tokenNumber || '');
       setAddress(data.address || '');
-      setCustomerName(data.customerName || '');
+      setCustomerName(data.customerName || bill.customerName || '');
       setCustomerPhone(data.customerPhone || '');
       setKitchenNote(data.kitchenNote || '');
+
+      if (isCloudKitchen && (data.deliveryDate || bill.deliveryDate)) {
+        const d = new Date(data.deliveryDate || bill.deliveryDate);
+        if (!isNaN(d.getTime())) {
+          const tzOffset = d.getTimezoneOffset() * 60000;
+          const localISOTime = (new Date(d.getTime() - tzOffset)).toISOString().slice(0, 16);
+          setDeliveryDate(localISOTime);
+        }
+      } else {
+        setDeliveryDate('');
+      }
 
       // Reconstruct cart with full product objects
       // Get current products - if empty, fetch them
@@ -981,6 +1017,7 @@ export default function BillingPage() {
       orderStatus: (isRestaurant && orderType === 'DELIVERY') ? 'READY_FOR_PICKUP' : (isRestaurant ? 'PENDING' : undefined),
       kitchenNote: kitchenNote || null,
       address: (isRestaurant && orderType === 'DELIVERY') ? address : null,
+      deliveryDate: isCloudKitchen ? deliveryDate : undefined,
     };
 
     // Increment Token Counter if Takeaway
@@ -1289,8 +1326,20 @@ export default function BillingPage() {
       return;
     }
 
+    // Validation: Cloud Kitchen requires Delivery Date
+    if (isCloudKitchen && !deliveryDate) {
+      showError('Please select a Delivery Date & Time for the scheduled order');
+      return;
+    }
+
     if (isRestaurant && orderType === 'DINE_IN' && !tableNumber.trim()) {
       showError('Please enter a Table Number');
+      return;
+    }
+
+    // Cloud Kitchen refinement: Bypass popup if customer name exists
+    if (isCloudKitchen && customerName?.trim()) {
+      saveCart(customerName);
       return;
     }
 
@@ -1362,8 +1411,9 @@ export default function BillingPage() {
       orderStatus: 'PENDING',
       kitchenNote: kitchenNote || null,
       address: (isRestaurant && orderType === 'DELIVERY') ? address : null,
-      customerName: isRestaurant ? customerName || null : undefined,
-      customerPhone: isRestaurant ? customerPhone || null : undefined,
+      customerName: customerName || null,
+      customerPhone: customerPhone || null,
+      deliveryDate: isCloudKitchen ? deliveryDate || null : undefined,
     };
 
     // Increment Token Counter if Takeaway (New Save Only)
@@ -1741,7 +1791,7 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="p-4 border rounded bg-white space-y-3 sticky top-4 lg:top-4 z-10 max-h-[calc(100vh-2rem)] flex flex-col">
+        <div className="p-4 border rounded bg-white space-y-3 sticky top-4">
           {/* Restaurant Controls */}
           {isRestaurant && (
             <div className="mb-3 p-2 bg-gray-50 rounded border border-gray-200">
@@ -1799,6 +1849,24 @@ export default function BillingPage() {
             </div>
           )}
 
+          {/* Cloud Kitchen: Delivery Date & Time Picker */}
+          {isCloudKitchen && (
+            <div className="mb-3 p-2 bg-orange-50 rounded border border-orange-200">
+              <label className="block text-xs font-semibold text-orange-700 mb-1">
+                Delivery Date & Time <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="datetime-local"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                className={`w-full border rounded px-2 py-1 text-sm ${!deliveryDate ? 'border-orange-300 bg-orange-50/60' : 'border-green-400 bg-green-50/30'}`}
+              />
+              {!deliveryDate && (
+                <p className="text-xs text-orange-600 mt-1">Required to schedule the order</p>
+              )}
+            </div>
+          )}
+
           {!isWaiter && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
               <input
@@ -1823,17 +1891,17 @@ export default function BillingPage() {
               <button
                 type="button"
                 onClick={handleSaveCartClick}
-                className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                className={`text-sm px-3 py-1 text-white rounded transition-colors ${isCloudKitchen ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}
                 disabled={loading || cart.length === 0}
               >
-                {isWaiter && isRestaurant ? 'Send to Kitchen' : 'Save Cart'}
+                {isCloudKitchen ? '🗓 Schedule Order' : isWaiter && isRestaurant ? 'Send to Kitchen' : 'Save Cart'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowHeld((v) => !v)}
                 className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
               >
-                {showHeld ? 'Hide Saved' : 'Saved Carts'}
+                {showHeld ? 'Hide Saved' : isCloudKitchen ? 'Scheduled Orders' : 'Saved Carts'}
               </button>
             </div>
           </div>
@@ -1862,7 +1930,7 @@ export default function BillingPage() {
               {heldBills.length === 0 && <p className="text-xs text-gray-500">No saved carts.</p>}
             </div>
           )}
-          <div className="space-y-2 overflow-y-auto pr-1 flex-1 min-h-[200px] pb-4">
+          <div className="space-y-2">
             {cart.map((line) => {
               const isGrocery = session?.user?.businessType === 'GROCERY';
               const canDelete = isGrocery || !line.status || line.status === 'PENDING' || line.status === 'REJECTED';
@@ -1873,7 +1941,7 @@ export default function BillingPage() {
                 <div key={uniqueId} className={`border rounded px-2 py-2 transition-all duration-500 ${isAdded ? 'bg-green-100 border-green-400 shadow-md ring-2 ring-green-400 scale-[1.02] transform' : line.status === 'REJECTED' ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
                   <div className="flex justify-between items-center">
                     <div>
-                      <div className={`font-medium ${line.status === 'REJECTED' ? 'line-through text-red-700' : ''}`}>
+                      <div className={`font-medium break-words ${line.status === 'REJECTED' ? 'line-through text-red-700' : ''}`}>
                         {line.product.name}
                         <span className="ml-2 text-gray-600 font-normal text-sm">
                           (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
@@ -1930,39 +1998,43 @@ export default function BillingPage() {
                     </div>
                   )}
 
-                  <div className="mt-2 flex items-center gap-2">
-                    <label className="text-xs text-gray-700">Qty</label>
-                    <input
-                      type="number"
-                      min={1}
-                      className="w-16 border rounded px-2 py-1 text-sm"
-                      value={line.quantity}
-                      onChange={(e) => updateQuantity(uniqueId, Number(e.target.value))}
-                    />
-                    <label className="text-xs text-gray-700 ml-2">Item Discount</label>
-                    <select
-                      className="border rounded px-2 py-1 text-sm flex-1"
-                      value={line.discountType || 'AMOUNT'}
-                      onChange={(e) => updateItemDiscount(uniqueId, e.target.value as any, line.discountValue || 0)}
-                    >
-                      <option value="AMOUNT">Amount</option>
-                      <option value="PERCENT">Percent</option>
-                    </select>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      className="w-24 border rounded px-2 py-1 text-sm"
-                      value={line.discountValue ?? 0}
-                      onChange={(e) =>
-                        updateItemDiscount(
-                          uniqueId,
-                          line.discountType || 'AMOUNT',
-                          Number(e.target.value)
-                        )
-                      }
-                      placeholder="Disc"
-                    />
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-gray-700">Qty</label>
+                      <input
+                        type="number"
+                        min={1}
+                        className="w-16 border rounded px-2 py-1 text-sm"
+                        value={line.quantity}
+                        onChange={(e) => updateQuantity(uniqueId, Number(e.target.value))}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 flex-1">
+                      <label className="text-xs text-gray-700">Item Discount</label>
+                      <select
+                        className="border rounded px-2 py-1 text-sm flex-1"
+                        value={line.discountType || 'AMOUNT'}
+                        onChange={(e) => updateItemDiscount(uniqueId, e.target.value as any, line.discountValue || 0)}
+                      >
+                        <option value="AMOUNT">Amount</option>
+                        <option value="PERCENT">Percent</option>
+                      </select>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        className="w-20 border rounded px-2 py-1 text-sm"
+                        value={line.discountValue ?? 0}
+                        onChange={(e) =>
+                          updateItemDiscount(
+                            uniqueId,
+                            line.discountType || 'AMOUNT',
+                            Number(e.target.value)
+                          )
+                        }
+                        placeholder="Disc"
+                      />
+                    </div>
                   </div>
                 </div>
               );

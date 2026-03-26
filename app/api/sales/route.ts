@@ -123,7 +123,8 @@ export async function POST(req: Request) {
       kitchenNote,
       orderType,
       orderStatus,
-      address
+      address,
+      deliveryDate
     } = body ?? {};
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'No items' }, { status: 400 });
     if (!['CASH', 'CARD'].includes(paymentMethod)) {
@@ -252,6 +253,7 @@ export async function POST(req: Request) {
           orderStatus: orderStatus || null,
           address: address || null,
           kitchenNote: kitchenNote || null,
+          deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
         },
       });
 

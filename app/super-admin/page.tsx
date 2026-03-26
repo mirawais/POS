@@ -153,6 +153,7 @@ export default function SuperAdminDashboard() {
                                 >
                                     <option value="GROCERY">Grocery / Retail</option>
                                     <option value="RESTAURANT">Restaurant / Cafe</option>
+                                    <option value="CLOUD_KITCHEN">Cloud Kitchen (Delivery Only)</option>
                                 </select>
                             </div>
                             <div className="space-y-1">
@@ -288,7 +289,9 @@ export default function SuperAdminDashboard() {
                             <div className="mb-4">
                                 <span className={`text-[10px] px-2 py-1 rounded-full font-medium border ${(client as any).businessType === 'RESTAURANT'
                                         ? 'bg-orange-50 text-orange-600 border-orange-100'
-                                        : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                        : (client as any).businessType === 'CLOUD_KITCHEN'
+                                            ? 'bg-purple-50 text-purple-600 border-purple-100'
+                                            : 'bg-emerald-50 text-emerald-600 border-emerald-100'
                                     }`}>
                                     {(client as any).businessType || 'GROCERY'}
                                 </span>

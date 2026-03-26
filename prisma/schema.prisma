@@ -54,6 +54,7 @@ enum Role {
 enum BusinessType {
   GROCERY
   RESTAURANT
+  CLOUD_KITCHEN
 }
 
 model User {
@@ -251,6 +252,7 @@ model Sale {
   riderName     String?    @map("rider_name")
   dispatchedAt  DateTime?  @map("dispatched_at")
   deliveredAt   DateTime?  @map("delivered_at")
+  deliveryDate  DateTime?  @map("delivery_date")
   wasteReason   String?    @map("waste_reason")
   wastedAt      DateTime?  @map("wasted_at")
   items         SaleItem[]
@@ -287,6 +289,7 @@ model HeldBill {
   wastedAt    DateTime? @map("wasted_at")
   data        Json
   createdAt   DateTime  @default(now()) @map("created_at")
+  deliveryDate DateTime? @map("delivery_date")
 }
 
 model Category {

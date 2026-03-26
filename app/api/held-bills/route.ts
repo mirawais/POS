@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   const clientId = user.clientId as string;
   const cashierId = user.id as string;
   const body = await req.json();
-  const { data, id, tokenName } = body; // id is optional - if provided, update existing; otherwise create new
+  const { data, id, tokenName, deliveryDate } = body; // id is optional - if provided, update existing; otherwise create new
   if (!data) return NextResponse.json({ error: 'No cart data' }, { status: 400 });
 
   // Delivery Validation for Restaurants
@@ -131,7 +131,8 @@ export async function POST(req: Request) {
       where: { id },
       data: {
         data: mergedData,
-        tokenName: tokenName || data.tokenName || undefined
+        tokenName: tokenName || data.tokenName || undefined,
+        deliveryDate: deliveryDate ? new Date(deliveryDate) : undefined,
       },
     });
     return NextResponse.json(updated);
@@ -148,6 +149,7 @@ export async function POST(req: Request) {
       clientId,
       cashierId,
       tokenName: tokenName || data.tokenName || null,
+      deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
       data: finalData,
     },
   });
