@@ -58,6 +58,7 @@ export default function BillingPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [loading, setLoading] = useState(false);
+  const [lastAddedId, setLastAddedId] = useState<string | null>(null);
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const { showError, showSuccess, showInfo, showToast } = useToast();
@@ -98,7 +99,7 @@ export default function BillingPage() {
   const [offlineOrderCount, setOfflineOrderCount] = useState(0);
   const [isSyncing, setIsSyncing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 50;
+  const [itemsPerPage, setItemsPerPage] = useState(50);
 
   // Restaurant Mode State
   const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>('DINE_IN');
@@ -680,6 +681,13 @@ export default function BillingPage() {
       return;
     }
 
+    const initialStatus = 'PENDING';
+    const addedAtStr = existing ? (existing.addedAt as string) : new Date().toISOString();
+    const uniqueId = `${product.id}:${variant?.id || 'base'}:${addedAtStr}`;
+    
+    setLastAddedId(uniqueId);
+    setTimeout(() => setLastAddedId(null), 1000);
+
     setCart((prev) => {
       if (existingIndex !== -1) {
         // Incrementing an existing PENDING cart line — not a dirty change
@@ -690,7 +698,7 @@ export default function BillingPage() {
       if (isLoadedCart) {
         setIsLoadedCart(false);
       }
-      return [...prev, { product, variant, quantity: 1, status: 'PENDING', addedAt: new Date().toISOString(), isDirectServe: false }];
+      return [...prev, { product, variant, quantity: 1, status: initialStatus, addedAt: addedAtStr, isDirectServe: false }];
     });
     if (!taxId && (product as any).defaultTaxId) {
       setTaxId((product as any).defaultTaxId);
@@ -1558,12 +1566,12 @@ export default function BillingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         <div className="lg:col-span-2 p-4 border rounded bg-white space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Products</h2>
             <div className="flex items-center gap-4">
-              {products.length > ITEMS_PER_PAGE && (
+              {products.length > itemsPerPage && (
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
@@ -1573,11 +1581,11 @@ export default function BillingPage() {
                     Previous
                   </button>
                   <span className="text-xs text-gray-500">
-                    Page {currentPage} of {Math.ceil(products.length / ITEMS_PER_PAGE)}
+                    Page {currentPage} of {Math.ceil(products.length / itemsPerPage)}
                   </span>
                   <button
-                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / ITEMS_PER_PAGE), p + 1))}
-                    disabled={currentPage === Math.ceil(products.length / ITEMS_PER_PAGE)}
+                    onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / itemsPerPage), p + 1))}
+                    disabled={currentPage === Math.ceil(products.length / itemsPerPage)}
                     className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
@@ -1607,6 +1615,24 @@ export default function BillingPage() {
                 loadProducts(term);
               }}
             />
+
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-gray-600 font-medium whitespace-nowrap">Items per page:</label>
+              <select
+                value={itemsPerPage}
+                onChange={(e) => {
+                  setItemsPerPage(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border rounded px-2 py-1 text-sm bg-white hover:bg-gray-50 cursor-pointer focus:ring-blue-500"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={1000}>All</option>
+              </select>
+            </div>
 
             {/* Sorting Controls */}
             <div className="flex items-center gap-2">
@@ -1649,7 +1675,7 @@ export default function BillingPage() {
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
-            {sortedProducts.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((p) => (
+            {sortedProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((p) => (
               <div key={p.id} className={`border rounded px-3 py-2 text-left relative ${p.isFavorite ? 'ring-1 ring-amber-400 bg-amber-50/30' : ''}`}>
                 {p.isFavorite && <span className="absolute top-1 right-1 text-amber-500 text-xs text-yellow-500">★</span>}
                 <div className="font-medium mr-3">{p.name}</div>
@@ -1687,10 +1713,10 @@ export default function BillingPage() {
           </div>
 
           {/* Pagination Controls */}
-          {products.length > ITEMS_PER_PAGE && (
+          {products.length > itemsPerPage && (
             <div className="flex items-center justify-between mt-4 pt-2 border-t">
               <span className="text-sm text-gray-600">
-                Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, products.length)} of {products.length} entries
+                Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, products.length)} of {products.length} entries
               </span>
               <div className="flex gap-2">
                 <button
@@ -1701,11 +1727,11 @@ export default function BillingPage() {
                   Previous
                 </button>
                 <span className="text-sm bg-gray-100 px-3 py-1 rounded flex items-center">
-                  Page {currentPage} of {Math.ceil(products.length / ITEMS_PER_PAGE)}
+                  Page {currentPage} of {Math.ceil(products.length / itemsPerPage)}
                 </span>
                 <button
-                  onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / ITEMS_PER_PAGE), p + 1))}
-                  disabled={currentPage === Math.ceil(products.length / ITEMS_PER_PAGE)}
+                  onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / itemsPerPage), p + 1))}
+                  disabled={currentPage === Math.ceil(products.length / itemsPerPage)}
                   className="px-3 py-1 border rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Next
@@ -1715,7 +1741,7 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="p-4 border rounded bg-white space-y-3">
+        <div className="p-4 border rounded bg-white space-y-3 sticky top-4 lg:top-4 z-10 max-h-[calc(100vh-2rem)] flex flex-col">
           {/* Restaurant Controls */}
           {isRestaurant && (
             <div className="mb-3 p-2 bg-gray-50 rounded border border-gray-200">
@@ -1836,14 +1862,15 @@ export default function BillingPage() {
               {heldBills.length === 0 && <p className="text-xs text-gray-500">No saved carts.</p>}
             </div>
           )}
-          <div className="space-y-2">
+          <div className="space-y-2 overflow-y-auto pr-1 flex-1 min-h-[200px] pb-4">
             {cart.map((line) => {
               const isGrocery = session?.user?.businessType === 'GROCERY';
               const canDelete = isGrocery || !line.status || line.status === 'PENDING' || line.status === 'REJECTED';
               const uniqueId = `${line.product.id}:${line.variant?.id || 'base'}:${line.addedAt}`;
+              const isAdded = lastAddedId === uniqueId;
 
               return (
-                <div key={uniqueId} className={`border rounded px-2 py-2 ${line.status === 'REJECTED' ? 'bg-red-50 border-red-200' : ''}`}>
+                <div key={uniqueId} className={`border rounded px-2 py-2 transition-all duration-500 ${isAdded ? 'bg-green-100 border-green-400 shadow-md ring-2 ring-green-400 scale-[1.02] transform' : line.status === 'REJECTED' ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
                   <div className="flex justify-between items-center">
                     <div>
                       <div className={`font-medium ${line.status === 'REJECTED' ? 'line-through text-red-700' : ''}`}>

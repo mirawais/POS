@@ -82,7 +82,7 @@ export default function CashierRefundsPage() {
 
     // Calculate total net value of all items for allocation
     const totalNetBase = selectedSale.items.reduce((acc, item) => {
-      const itemNet = Number(item.total) - Number(item.discount || 0);
+      const itemNet = Number(item.total);
       return acc + itemNet;
     }, 0);
 
@@ -91,15 +91,15 @@ export default function CashierRefundsPage() {
       if (refundQty > 0) {
         const item = selectedSale.items.find((i) => i.id === saleItemId);
         if (item) {
-          const itemNet = Number(item.total) - Number(item.discount || 0);
+          const itemNet = Number(item.total);
 
           let allocatedGlobalDiscount = 0;
           if (totalNetBase > 0) {
             allocatedGlobalDiscount = globalDiscount * (itemNet / totalNetBase);
           }
 
-          // Net Paid Per Line = (ItemNet - AllocatedGlobalDiscount) + Tax
-          const lineNetPaid = itemNet - allocatedGlobalDiscount + Number(item.tax || 0);
+          // Net Paid Per Line = (ItemNet - AllocatedGlobalDiscount)
+          const lineNetPaid = itemNet - allocatedGlobalDiscount;
           const unitTotal = lineNetPaid / item.quantity;
 
           total += unitTotal * refundQty;
@@ -285,14 +285,14 @@ export default function CashierRefundsPage() {
                                   (() => {
                                     const totalItemDiscount = selectedSale.items.reduce((acc, i) => acc + Number(i.discount || 0), 0);
                                     const globalDiscount = Math.max(0, Number(selectedSale.discount || 0) - totalItemDiscount);
-                                    const totalNetBase = selectedSale.items.reduce((acc, i) => acc + (Number(i.total) - Number(i.discount || 0)), 0);
+                                    const totalNetBase = selectedSale.items.reduce((acc, i) => acc + Number(i.total), 0);
 
-                                    const itemNet = Number(item.total) - Number(item.discount || 0);
+                                    const itemNet = Number(item.total);
                                     let allocatedGlobalDiscount = 0;
                                     if (totalNetBase > 0) {
                                       allocatedGlobalDiscount = globalDiscount * (itemNet / totalNetBase);
                                     }
-                                    const lineNetPaid = itemNet - allocatedGlobalDiscount + Number(item.tax || 0);
+                                    const lineNetPaid = itemNet - allocatedGlobalDiscount;
                                     const unitTotal = lineNetPaid / item.quantity;
                                     return (unitTotal * refundQty).toFixed(2);
                                   })()

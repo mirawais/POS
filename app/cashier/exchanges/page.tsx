@@ -67,7 +67,7 @@ export default function CashierExchangesPage() {
 
     // Calculate total net value of all items to serve as the basis for allocating global discount
     const totalNetBase = selectedSale.items.reduce((acc, item) => {
-      const itemNet = Number(item.total) - Number(item.discount || 0);
+      const itemNet = Number(item.total);
       return acc + itemNet;
     }, 0);
 
@@ -75,7 +75,7 @@ export default function CashierExchangesPage() {
       if (returnQty > 0) {
         const item = selectedSale.items.find((i) => i.id === saleItemId);
         if (item) {
-          const itemNet = Number(item.total) - Number(item.discount || 0);
+          const itemNet = Number(item.total);
 
           // Allocate global discount (Cart discount + Coupon) proportional to this item's net value
           let allocatedGlobalDiscount = 0;
@@ -83,9 +83,9 @@ export default function CashierExchangesPage() {
             allocatedGlobalDiscount = globalDiscount * (itemNet / totalNetBase);
           }
 
-          // Net Paid = (ItemTotal - ItemDiscount - AllocatedCartDiscount) + Tax
-          // Tax is NOT recalculated, we use the stored tax value
-          const lineNetPaid = itemNet - allocatedGlobalDiscount + Number(item.tax || 0);
+          // Net Paid = (ItemTotal - AllocatedCartDiscount)
+          // Tax is already included in ItemTotal
+          const lineNetPaid = itemNet - allocatedGlobalDiscount;
 
           const unitTotal = lineNetPaid / item.quantity;
           total += unitTotal * returnQty;
@@ -173,7 +173,7 @@ export default function CashierExchangesPage() {
       if (returnQty > 0) {
         const item = selectedSale.items.find((i) => i.id === saleItemId);
         if (item) {
-          const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+          const lineNet = Number(item.total);
           const unitTotal = lineNet / item.quantity;
           returnValue += unitTotal * returnQty;
         }
@@ -318,7 +318,7 @@ export default function CashierExchangesPage() {
       // Extract returned items info for the invoice
       const returnedItemsDetails = returns.map(r => {
         const originalItem = originalSaleData.items.find((i: any) => i.id === r.saleItemId);
-        const itemLineNet = Number(originalItem.total) - Number(originalItem.discount || 0) + Number(originalItem.tax || 0);
+        const itemLineNet = Number(originalItem.total);
         const unitTotal = itemLineNet / originalItem.quantity;
         return {
           name: originalItem.product.name,
@@ -493,7 +493,7 @@ export default function CashierExchangesPage() {
                               <span className="text-sm text-red-600">
                                 Return Value: Rs. {
                                   (() => {
-                                    const lineNet = Number(item.total) - Number(item.discount || 0) + Number(item.tax || 0);
+                                    const lineNet = Number(item.total);
                                     const unitTotal = lineNet / item.quantity;
                                     return (unitTotal * returnQty).toFixed(2);
                                   })()
