@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { AdminHeader } from '@/components/layout/AdminHeader';
-import { Truck, Utensils, ShoppingBag, AlertCircle, Receipt, CreditCard, Banknote, RefreshCcw, Ticket } from 'lucide-react';
+import { Truck, Utensils, ShoppingBag, AlertCircle, Receipt, CreditCard, Banknote, RefreshCcw, Ticket, ShieldCheck, ShieldAlert, Shield } from 'lucide-react';
 
 export default function SalesReportPage() {
     const { data: session } = useSession();
@@ -19,6 +19,8 @@ export default function SalesReportPage() {
     const [summary, setSummary] = useState<{
         totalSales: number;
         totalTax: number;
+        fbrTax: number;
+        nonFbrTax: number;
         totalDiscount: number;
         totalCouponDiscount: number;
         cashSales: number;
@@ -87,14 +89,25 @@ export default function SalesReportPage() {
             const data = await response.json();
             setSales(data);
 
-            const validSales = data.filter((s: any) => s.orderStatus !== 'WASTED');
             const wastedSales = data.filter((s: any) => s.orderStatus === 'WASTED');
+            // Exclude WASTED orders and REFUND-type sales from financial totals
+            const validSales = data.filter((s: any) =>
+                s.orderStatus !== 'WASTED' && s.type !== 'REFUND'
+            );
 
             const totalSales = validSales.reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
             const totalTax = validSales.reduce((sum: number, sale: any) => sum + Number(sale.tax), 0);
             const totalDiscountRaw = validSales.reduce((sum: number, sale: any) => sum + Number(sale.discount || 0), 0);
             const totalCouponDiscount = validSales.reduce((sum: number, sale: any) => sum + Number(sale.couponValue || 0), 0);
             const totalDiscount = totalDiscountRaw - totalCouponDiscount;
+
+            // FBR Tax Aggregations (also exclude WASTED and REFUND)
+            const fbrTax = validSales
+                .filter((s: any) => s.fbrInvoiceId && s.fbrInvoiceId.trim() !== '')
+                .reduce((sum: number, s: any) => sum + Number(s.tax), 0);
+            const nonFbrTax = validSales
+                .filter((s: any) => !s.fbrInvoiceId || s.fbrInvoiceId.trim() === '')
+                .reduce((sum: number, s: any) => sum + Number(s.tax), 0);
 
             const cashSales = validSales.filter((sale: any) => sale.paymentMethod === 'CASH' || !sale.paymentMethod).reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
             const cardSales = validSales.filter((sale: any) => sale.paymentMethod === 'CARD').reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
@@ -113,7 +126,7 @@ export default function SalesReportPage() {
             const wastageCount = wastedSales.length;
 
             setSummary({
-                totalSales, totalTax, totalDiscount, totalCouponDiscount, cashSales, cardSales,
+                totalSales, totalTax, fbrTax, nonFbrTax, totalDiscount, totalCouponDiscount, cashSales, cardSales,
                 totalRefundAmount, netSale, dineInSales, takeawaySales, deliverySales, wastageLoss, wastageCount
             });
         } catch (err: any) {
@@ -239,24 +252,92 @@ export default function SalesReportPage() {
 
                 {summary && (
                     <div className="space-y-6">
-                        {/* Financial Summary Bar */}
+                        {/* Top Financial Summary — 4-col uniform grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            {/* Gross Sales */}
+                            <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-5 flex flex-col justify-between min-h-[90px]">
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Total Gross Sales</p>
+                                <p className="text-2xl font-black text-gray-900 mt-1">Rs. {summary.totalSales.toLocaleString()}</p>
+                            </div>
+                            {/* Net Sale */}
+                            <div className="bg-white border border-green-100 rounded-xl shadow-sm p-5 flex flex-col justify-between min-h-[90px]">
+                                <p className="text-[11px] font-bold text-green-600 uppercase tracking-wider">Total Net Sale</p>
+                                <p className="text-2xl font-black text-green-700 mt-1">Rs. {summary.netSale.toLocaleString()}</p>
+                            </div>
+                            {/* Tax */}
+                            <div className="bg-white border border-blue-100 rounded-xl shadow-sm p-5 flex flex-col justify-between min-h-[90px]">
+                                <p className="text-[11px] font-bold text-blue-500 uppercase tracking-wider">Tax Collected</p>
+                                <p className="text-2xl font-black text-blue-700 mt-1">Rs. {summary.totalTax.toLocaleString()}</p>
+                            </div>
+                            {/* Manual Discount */}
+                            <div className="bg-white border border-red-100 rounded-xl shadow-sm p-5 flex flex-col justify-between min-h-[90px]">
+                                <p className="text-[11px] font-bold text-red-500 uppercase tracking-wider">Manual Discount</p>
+                                <p className="text-2xl font-black text-red-600 mt-1">Rs. {summary.totalDiscount.toLocaleString()}</p>
+                            </div>
+                        </div>
+
+                        {/* FBR Tax Audit Section */}
                         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-                            <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-gray-100 p-4">
-                                <div className="px-6 py-2">
-                                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Total Gross Sales</p>
-                                    <p className="text-xl font-bold text-gray-900">Rs. {summary.totalSales.toLocaleString()}</p>
+                            <div className="px-6 py-4 bg-gray-50 border-b flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                    <Shield size={20} className="text-blue-600" />
+                                    FBR Tax Compliance Audit
+                                    {summary.nonFbrTax > 0 && (
+                                        <span className="ml-2 inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold bg-orange-100 text-orange-700 border border-orange-200 rounded-full">
+                                            <ShieldAlert size={12} />
+                                            Non-Compliant Orders Detected
+                                        </span>
+                                    )}
+                                    {summary.nonFbrTax === 0 && summary.totalTax > 0 && (
+                                        <span className="ml-2 inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-bold bg-green-100 text-green-700 border border-green-200 rounded-full">
+                                            <ShieldCheck size={12} />
+                                            Fully Compliant
+                                        </span>
+                                    )}
+                                </h3>
+                                <p className="text-xs text-gray-400 shrink-0">Excludes wasted &amp; refunded orders</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-3">
+                                {/* Total Tax */}
+                                <div className="p-6 flex items-start gap-4 border-b md:border-b-0 md:border-r border-gray-100">
+                                    <div className="p-3 bg-blue-50 rounded-xl shrink-0">
+                                        <Shield size={22} className="text-blue-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-1">Total Tax Collected</p>
+                                        <p className="text-2xl font-black text-blue-700">Rs. {summary.totalTax.toLocaleString()}</p>
+                                        <p className="text-xs text-gray-400 mt-1">From all valid sales</p>
+                                    </div>
                                 </div>
-                                <div className="px-6 py-2">
-                                    <p className="text-xs font-semibold text-green-600 uppercase tracking-wider mb-1">Total Net Sale</p>
-                                    <p className="text-xl font-bold text-green-700">Rs. {summary.netSale.toLocaleString()}</p>
+                                {/* FBR Verified Tax */}
+                                <div className="p-6 flex items-start gap-4 border-b md:border-b-0 md:border-r border-gray-100">
+                                    <div className="p-3 bg-emerald-50 rounded-xl shrink-0">
+                                        <ShieldCheck size={22} className="text-emerald-600" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider mb-1">FBR Verified Tax</p>
+                                        <p className="text-2xl font-black text-emerald-700">Rs. {summary.fbrTax.toLocaleString()}</p>
+                                        <p className="text-xs text-emerald-400 mt-1">
+                                            {summary.totalTax > 0
+                                                ? `${((summary.fbrTax / summary.totalTax) * 100).toFixed(1)}% of total`
+                                                : 'No tax yet'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="px-6 py-2">
-                                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Tax Collected</p>
-                                    <p className="text-xl font-bold text-gray-900">Rs. {summary.totalTax.toLocaleString()}</p>
-                                </div>
-                                <div className="px-6 py-2">
-                                    <p className="text-xs font-semibold text-red-500 uppercase tracking-wider mb-1">Manual Discount</p>
-                                    <p className="text-xl font-bold text-red-600">Rs. {summary.totalDiscount.toLocaleString()}</p>
+                                {/* Non-FBR Tax */}
+                                <div className={`p-6 flex items-start gap-4 ${summary.nonFbrTax > 0 ? 'bg-orange-50/40' : ''}`}>
+                                    <div className={`p-3 rounded-xl shrink-0 ${summary.nonFbrTax > 0 ? 'bg-orange-100' : 'bg-gray-50'}`}>
+                                        <ShieldAlert size={22} className={summary.nonFbrTax > 0 ? 'text-orange-600' : 'text-gray-300'} />
+                                    </div>
+                                    <div>
+                                        <p className={`text-[11px] font-bold uppercase tracking-wider mb-1 ${summary.nonFbrTax > 0 ? 'text-orange-600' : 'text-gray-400'}`}>Unverified (Non-FBR)</p>
+                                        <p className={`text-2xl font-black ${summary.nonFbrTax > 0 ? 'text-orange-700' : 'text-gray-400'}`}>
+                                            Rs. {summary.nonFbrTax.toLocaleString()}
+                                        </p>
+                                        <p className={`text-xs mt-1 ${summary.nonFbrTax > 0 ? 'text-orange-500 font-semibold' : 'text-gray-400'}`}>
+                                            {summary.nonFbrTax > 0 ? '⚠ FBR sync missing for some orders' : 'All clear'}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -299,34 +380,34 @@ export default function SalesReportPage() {
                             </div>
                         )}
 
-                        {/* Small Data Cards (UI Fix Section '1') */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center gap-4">
-                                <div className="p-2 bg-red-50 rounded-lg text-red-500"><Ticket size={20} /></div>
+                        {/* Bottom Metric Cards — 4-col uniform grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-5 flex items-center gap-4 min-h-[80px]">
+                                <div className="p-2.5 bg-red-50 rounded-xl text-red-500 shrink-0"><Ticket size={20} /></div>
                                 <div>
-                                    <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Coupon Discounts</p>
-                                    <p className="text-sm font-black text-red-600">Rs. {summary.totalCouponDiscount.toLocaleString()}</p>
+                                    <p className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">Coupon Discounts</p>
+                                    <p className="text-lg font-black text-red-600 mt-0.5">Rs. {summary.totalCouponDiscount.toLocaleString()}</p>
                                 </div>
                             </div>
-                            <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center gap-4">
-                                <div className="p-2 bg-orange-50 rounded-lg text-orange-500"><RefreshCcw size={20} /></div>
+                            <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-5 flex items-center gap-4 min-h-[80px]">
+                                <div className="p-2.5 bg-orange-50 rounded-xl text-orange-500 shrink-0"><RefreshCcw size={20} /></div>
                                 <div>
-                                    <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Order Returns</p>
-                                    <p className="text-sm font-black text-orange-600">Rs. {summary.totalRefundAmount.toLocaleString()}</p>
+                                    <p className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">Order Returns</p>
+                                    <p className="text-lg font-black text-orange-600 mt-0.5">Rs. {summary.totalRefundAmount.toLocaleString()}</p>
                                 </div>
                             </div>
-                            <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center gap-4">
-                                <div className="p-2 bg-yellow-50 rounded-lg text-yellow-600"><Banknote size={20} /></div>
+                            <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-5 flex items-center gap-4 min-h-[80px]">
+                                <div className="p-2.5 bg-yellow-50 rounded-xl text-yellow-600 shrink-0"><Banknote size={20} /></div>
                                 <div>
-                                    <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Cash Revenue</p>
-                                    <p className="text-sm font-black text-yellow-700">Rs. {summary.cashSales.toLocaleString()}</p>
+                                    <p className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">Cash Revenue</p>
+                                    <p className="text-lg font-black text-yellow-700 mt-0.5">Rs. {summary.cashSales.toLocaleString()}</p>
                                 </div>
                             </div>
-                            <div className="bg-white border rounded-xl p-4 shadow-sm flex items-center gap-4">
-                                <div className="p-2 bg-purple-50 rounded-lg text-purple-600"><CreditCard size={20} /></div>
+                            <div className="bg-white border border-gray-100 rounded-xl shadow-sm p-5 flex items-center gap-4 min-h-[80px]">
+                                <div className="p-2.5 bg-purple-50 rounded-xl text-purple-600 shrink-0"><CreditCard size={20} /></div>
                                 <div>
-                                    <p className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Card Revenue</p>
-                                    <p className="text-sm font-black text-purple-700">Rs. {summary.cardSales.toLocaleString()}</p>
+                                    <p className="text-[11px] uppercase font-bold text-gray-400 tracking-wider">Card Revenue</p>
+                                    <p className="text-lg font-black text-purple-700 mt-0.5">Rs. {summary.cardSales.toLocaleString()}</p>
                                 </div>
                             </div>
                         </div>

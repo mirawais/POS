@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import { ShieldCheck, ShieldAlert } from 'lucide-react';
 
 /** Build the [start, end] ISO strings for the "Business Day" window based on dayClosingTime.
  *  Uses logic to determine if we are currently in the business day that started yesterday
@@ -64,6 +65,8 @@ export default function CashierSummaryPage() {
   const [summary, setSummary] = useState({
     totalSales: 0,
     totalTax: 0,
+    fbrTax: 0,
+    nonFbrTax: 0,
     totalDiscount: 0,
     totalCouponDiscount: 0,
     totalProducts: 0,
@@ -101,6 +104,8 @@ export default function CashierSummaryPage() {
       const stats = {
         totalSales: 0,
         totalTax: 0,
+        fbrTax: 0,
+        nonFbrTax: 0,
         totalDiscount: 0,
         totalCouponDiscount: 0,
         totalProducts: 0,
@@ -117,47 +122,60 @@ export default function CashierSummaryPage() {
 
       const productsMap = new Map<string, any>();
 
-      // Process Sales
+      // Process Sales — exclude WASTED and REFUND-type orders from tax totals
       sales.forEach((sale: any) => {
-        stats.totalSales += Number(sale.total);
-        stats.totalTax += Number(sale.tax);
+        const isExcluded = sale.orderStatus === 'WASTED' || sale.type === 'REFUND';
 
-        // Separate manual discount and coupon discount
-        const rawDiscount = Number(sale.discount || 0);
-        const couponVal = Number(sale.couponValue || 0);
-        const manualDiscount = rawDiscount - couponVal;
+        if (!isExcluded) {
+          stats.totalSales += Number(sale.total);
+          stats.totalTax += Number(sale.tax);
 
-        // Database 'discount' includes coupon value, so we subtract it to get manual discount
-        stats.totalDiscount += manualDiscount;
-        stats.totalCouponDiscount += couponVal;
-
-        // Break down by payment method
-        const method = (sale.paymentMethod === 'CARD' ? 'CARD' : 'CASH') as 'CASH' | 'CARD';
-        methodStats[method].sales += Number(sale.total);
-        methodStats[method].tax += Number(sale.tax);
-        methodStats[method].discount += manualDiscount;
-        methodStats[method].coupon += couponVal;
-
-        sale.items.forEach((item: any) => {
-          // Net quantity logic (quantitiy sold - quantity returned in THIS sale item context)
-          // Note: item.returnedQuantity tracks returns against this specific sale item
-          const netQty = (item.quantity || 0) - (item.returnedQuantity || 0);
-          stats.totalProducts += netQty;
-
-          if (netQty > 0) {
-            const key = `${item.productId}:${item.variantId || 'base'}`;
-            const existing = productsMap.get(key);
-            if (existing) {
-              existing.quantity += netQty;
-            } else {
-              productsMap.set(key, {
-                name: item.product?.name || 'Unknown',
-                variant: item.variant?.name || null,
-                quantity: netQty,
-              });
-            }
+          // FBR tax split
+          if (sale.fbrInvoiceId && sale.fbrInvoiceId.trim() !== '') {
+            stats.fbrTax += Number(sale.tax);
+          } else {
+            stats.nonFbrTax += Number(sale.tax);
           }
-        });
+
+          // Separate manual discount and coupon discount
+          const rawDiscount = Number(sale.discount || 0);
+          const couponVal = Number(sale.couponValue || 0);
+          const manualDiscount = rawDiscount - couponVal;
+
+          // Database 'discount' includes coupon value, so we subtract it to get manual discount
+          stats.totalDiscount += manualDiscount;
+          stats.totalCouponDiscount += couponVal;
+
+          // Break down by payment method
+          const method = (sale.paymentMethod === 'CARD' ? 'CARD' : 'CASH') as 'CASH' | 'CARD';
+          methodStats[method].sales += Number(sale.total);
+          methodStats[method].tax += Number(sale.tax);
+          methodStats[method].discount += manualDiscount;
+          methodStats[method].coupon += couponVal;
+        }
+
+        // Always include product qty tracking (even wasted, to keep counts accurate if needed)
+        if (!isExcluded) {
+          sale.items.forEach((item: any) => {
+            // Net quantity logic (quantity sold - quantity returned in THIS sale item context)
+            const netQty = (item.quantity || 0) - (item.returnedQuantity || 0);
+            stats.totalProducts += netQty;
+
+            if (netQty > 0) {
+              const key = `${item.productId}:${item.variantId || 'base'}`;
+              const existing = productsMap.get(key);
+              if (existing) {
+                existing.quantity += netQty;
+              } else {
+                productsMap.set(key, {
+                  name: item.product?.name || 'Unknown',
+                  variant: item.variant?.name || null,
+                  quantity: netQty,
+                });
+              }
+            }
+          });
+        }
       });
 
       // Process Refunds (Today's actual refund transactions)
@@ -289,6 +307,24 @@ export default function CashierSummaryPage() {
               <div className="text-sm text-gray-600">Total Tax</div>
               <div className="text-2xl font-bold text-amber-600">Rs. {summary.totalTax.toFixed(2)}</div>
             </div>
+            <div className="p-4 bg-emerald-50 border border-emerald-200 rounded shadow-sm">
+              <div className="text-sm font-semibold text-emerald-700 flex items-center gap-1">
+                <ShieldCheck size={14} /> FBR Verified Tax
+              </div>
+              <div className="text-2xl font-bold text-emerald-700">Rs. {summary.fbrTax.toFixed(2)}</div>
+              <div className="text-xs text-emerald-500 mt-0.5">
+                {summary.totalTax > 0 ? `${((summary.fbrTax / summary.totalTax) * 100).toFixed(1)}% of total` : ''}
+              </div>
+            </div>
+            <div className={`p-4 border rounded shadow-sm ${summary.nonFbrTax > 0 ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200'}`}>
+              <div className={`text-sm font-semibold flex items-center gap-1 ${summary.nonFbrTax > 0 ? 'text-orange-700' : 'text-gray-500'}`}>
+                <ShieldAlert size={14} /> Unverified (Non-FBR)
+              </div>
+              <div className={`text-2xl font-bold ${summary.nonFbrTax > 0 ? 'text-orange-700' : 'text-gray-400'}`}>Rs. {summary.nonFbrTax.toFixed(2)}</div>
+              {summary.nonFbrTax > 0 && (
+                <div className="text-xs text-orange-500 font-medium mt-0.5">⚠ Sync missing</div>
+              )}
+            </div>
             <div className="p-4 bg-white border rounded shadow-sm">
               <div className="text-sm text-gray-600">Cash Sales</div>
               <div className="text-2xl font-bold text-emerald-600">Rs. {summary.cashSales.toFixed(2)}</div>
@@ -324,6 +360,14 @@ export default function CashierSummaryPage() {
             <div className="flex justify-between text-lg mt-2">
               <span>Total Tax:</span>
               <span>Rs. {summary.totalTax.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-lg">
+              <span>  ↳ FBR Verified Tax:</span>
+              <span>Rs. {summary.fbrTax.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-lg">
+              <span>  ↳ Unverified (Non-FBR):</span>
+              <span>{summary.nonFbrTax > 0 ? `⚠ Rs. ${summary.nonFbrTax.toFixed(2)}` : `Rs. ${summary.nonFbrTax.toFixed(2)}`}</span>
             </div>
             <div className="flex justify-between text-lg">
               <span>Total Discount:</span>
