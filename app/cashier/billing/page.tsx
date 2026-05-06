@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/notifications/ToastContainer';
-import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt, ShoppingCart, ArrowLeft } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 import { formatPrice as baseFormatPrice } from '@/lib/utils';
 
@@ -132,6 +132,21 @@ export default function BillingPage() {
 
   // Cloud Kitchen Mode State
   const [deliveryDate, setDeliveryDate] = useState('');
+
+  // Mobile View State
+  const [showCartMobile, setShowCartMobile] = useState(false);
+
+  // Lock scroll when mobile cart is open
+  useEffect(() => {
+    if (showCartMobile) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [showCartMobile]);
 
   // Token Generation Logic
   useEffect(() => {
@@ -1616,8 +1631,8 @@ export default function BillingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-        <div className="lg:col-span-2 p-4 border rounded bg-white space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start relative">
+        <div className={`md:col-span-2 p-4 border rounded bg-white space-y-3 ${showCartMobile ? 'hidden md:block' : 'block'}`}>
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Products</h2>
             <div className="flex items-center gap-4">
@@ -1791,7 +1806,21 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className="p-4 border rounded bg-white space-y-3 sticky top-4">
+        <div className={`p-4 border rounded bg-white space-y-3 sticky top-4 
+          ${showCartMobile 
+            ? 'fixed inset-0 z-[60] overflow-y-auto bg-white p-6 animate-in slide-in-from-bottom duration-300 md:relative md:inset-auto md:z-auto md:p-4 md:animate-none' 
+            : 'hidden md:block'}`}>
+          
+          {/* Mobile Back Button */}
+          {showCartMobile && (
+            <button 
+              onClick={() => setShowCartMobile(false)}
+              className="md:hidden flex items-center gap-2 text-blue-600 mb-4 hover:text-blue-800 transition-colors"
+            >
+              <ArrowLeft size={20} />
+              <span className="font-medium">Back to Products</span>
+            </button>
+          )}
           {/* Restaurant Controls */}
           {isRestaurant && (
             <div className="mb-3 p-2 bg-gray-50 rounded border border-gray-200">
@@ -2391,6 +2420,22 @@ export default function BillingPage() {
         onCancel={() => setNewOrderModalOpen(false)}
         confirmText="Clear & Start New"
       />
+
+      {/* Floating Cart Button for Mobile */}
+      {!showCartMobile && cart.length > 0 && (
+        <button
+          onClick={() => setShowCartMobile(true)}
+          className="md:hidden fixed bottom-6 right-6 z-50 bg-blue-600 text-white p-4 rounded-full shadow-2xl flex items-center gap-2 hover:bg-blue-700 active:scale-95 transition-all"
+        >
+          <div className="relative">
+            <ShoppingCart size={24} />
+            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ring-2 ring-white">
+              {cart.reduce((sum, item) => sum + item.quantity, 0)}
+            </span>
+          </div>
+          <span className="font-semibold">View Cart</span>
+        </button>
+      )}
     </div>
   );
 }
