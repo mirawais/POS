@@ -1602,7 +1602,7 @@ export default function BillingPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-32 md:pb-6">
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-2xl font-semibold">Billing</h1>
@@ -1631,7 +1631,7 @@ export default function BillingPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start relative">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
         <div className={`md:col-span-2 p-4 border rounded bg-white space-y-3 ${showCartMobile ? 'hidden md:block' : 'block'}`}>
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Products</h2>
@@ -1806,10 +1806,11 @@ export default function BillingPage() {
           )}
         </div>
 
-        <div className={`p-4 border rounded bg-white space-y-3 sticky top-4 
-          ${showCartMobile 
-            ? 'fixed inset-0 z-[60] overflow-y-auto bg-white p-6 animate-in slide-in-from-bottom duration-300 md:relative md:inset-auto md:z-auto md:p-4 md:animate-none' 
-            : 'hidden md:block'}`}>
+        <div className={
+          showCartMobile 
+            ? "fixed inset-0 z-[60] overflow-y-auto bg-white p-6 pb-32 animate-in slide-in-from-bottom duration-300"
+            : "hidden md:block md:sticky md:top-4 p-4 border rounded bg-white space-y-3"
+        }>
           
           {/* Mobile Back Button */}
           {showCartMobile && (
