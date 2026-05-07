@@ -99,6 +99,54 @@ export default function BillingPage() {
     }
   };
 
+  const loadCustomers = useCallback(async () => {
+    try {
+      const res = await fetch('/api/customers');
+      if (res.ok) {
+        const data = await res.json();
+        setCustomers(data);
+      }
+    } catch (err) {
+      console.error('Failed to load customers', err);
+    }
+  }, []);
+
+  const handleCreateCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomerData.name || !newCustomerData.phone) {
+      showError('Name and Phone are required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...newCustomerData,
+          openingBalance: Number(newCustomerData.openingBalance || 0)
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to create customer');
+      }
+      const newCustomer = await res.json();
+      setCustomers(prev => [newCustomer, ...prev]);
+      setSelectedCustomerId(newCustomer.id);
+      setCustomerName(newCustomer.name);
+      setCustomerPhone(newCustomer.phone);
+      setSearchCustomerTerm(`${newCustomer.name} (${newCustomer.phone})`);
+      setShowCustomerModal(false);
+      setNewCustomerData({ name: '', phone: '', email: '', address: '', openingBalance: '' });
+      showSuccess('Customer created successfully');
+    } catch (err: any) {
+      showError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const updateItemPrice = (uniqueId: string, newPrice: number) => {
     setCart((prev) =>
       prev.map((p) =>
@@ -160,6 +208,36 @@ export default function BillingPage() {
   const [isLoadedCart, setIsLoadedCart] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+
+  // Customer Ledger State
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [amountReceived, setAmountReceived] = useState<number>(0);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [newCustomerData, setNewCustomerData] = useState({ name: '', phone: '', email: '', address: '', openingBalance: '' });
+  const [searchCustomerTerm, setSearchCustomerTerm] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowCustomerDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredCustomers = useMemo(() => {
+    if (!searchCustomerTerm) return customers;
+    const term = searchCustomerTerm.toLowerCase();
+    return customers.filter(c => 
+      c.name.toLowerCase().includes(term) || 
+      c.phone.toLowerCase().includes(term)
+    );
+  }, [customers, searchCustomerTerm]);
   // UI Visibility State
   const [showPriceDecimals, setShowPriceDecimals] = useState(true);
   const [showCartDiscount, setShowCartDiscount] = useState(false);
@@ -442,6 +520,9 @@ export default function BillingPage() {
       fetch('/api/categories').then(res => res.json()).then(setCategories).catch(console.error);
     }
     loadHeld();
+    if (isWholesale) {
+      loadCustomers();
+    }
 
     // Load caching for settings
     const loadSettings = async () => {
@@ -462,7 +543,7 @@ export default function BillingPage() {
       }
     };
     loadSettings();
-  }, [loadProducts]);
+  }, [loadProducts, isWholesale, loadCustomers]);
 
   useEffect(() => {
     const loadHeldBillId = sessionStorage.getItem('loadHeldBillId');
@@ -1056,10 +1137,18 @@ export default function BillingPage() {
   }, []);
 
   const confirmCheckout = async () => {
+    // Wholesale Validation: Prevent credit/advance without a customer
+    if (isWholesale && !selectedCustomerId && Math.abs(Number(amountReceived) - totals.total) > 0.01) {
+      showError('Please select a customer for partial or advance payments. Walk-in payments must match the total.');
+      setLoading(false);
+      return;
+    }
+
     // Delivery Validation for Restaurants
     if (isRestaurant && orderType === 'DELIVERY') {
       if (!customerName?.trim() || !customerPhone?.trim() || !address?.trim()) {
         showError('Delivery orders require Customer Name, Phone, and Address');
+        setLoading(false);
         return;
       }
     }
@@ -1092,6 +1181,8 @@ export default function BillingPage() {
       kitchenNote: kitchenNote || null,
       address: (isRestaurant && orderType === 'DELIVERY') ? address : null,
       deliveryDate: isCloudKitchen ? deliveryDate : undefined,
+      customerId: isWholesale ? (selectedCustomerId || null) : null,
+      amountReceived: isWholesale ? Number(amountReceived || 0) : totals.total,
     };
 
     // Increment Token Counter if Takeaway
@@ -1387,6 +1478,9 @@ export default function BillingPage() {
     setKitchenNote('');
     setAddress('');
     setIsLoadedCart(false); // Clear loaded cart flag
+    setSelectedCustomerId('');
+    setSearchCustomerTerm('');
+    setAmountReceived(0);
 
     // Reset Restaurant Fields
     setTableNumber('');
@@ -1660,79 +1754,81 @@ export default function BillingPage() {
   };
 
   return (
-    <div className="space-y-6 pb-32 md:pb-6">
-      <div className="flex justify-between items-start">
-        <div>
+    <div className="space-y-4 pb-32 md:pb-6 overflow-x-hidden w-full">
+      <div className="flex flex-wrap justify-between items-start gap-2">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold">Billing</h1>
-          <p className="mt-2 text-gray-600">Add items, apply discounts/coupons, and checkout.</p>
+          <p className="mt-1 text-gray-600 text-sm">Add items, apply discounts/coupons, and checkout.</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {offlineOrderCount > 0 && (
-            <div className="flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-1 rounded text-sm">
-              <span className="font-semibold">{offlineOrderCount} offline orders</span>
+            <div className="flex items-center gap-2 bg-amber-100 text-amber-800 px-2 py-1 rounded text-sm">
+              <span className="font-semibold">{offlineOrderCount} offline</span>
               {isOnline && (
                 <button
                   onClick={syncOfflineOrders}
                   disabled={isSyncing}
-                  className="ml-2 flex items-center gap-1 bg-amber-200 hover:bg-amber-300 px-2 py-0.5 rounded text-xs transition-colors"
+                  className="flex items-center gap-1 bg-amber-200 hover:bg-amber-300 px-2 py-0.5 rounded text-xs transition-colors"
                 >
                   <RefreshCcw size={12} className={isSyncing ? 'animate-spin' : ''} />
-                  {isSyncing ? 'Syncing...' : 'Sync Now'}
+                  {isSyncing ? '...' : 'Sync'}
                 </button>
               )}
             </div>
           )}
-          <div className={`flex items-center gap-2 px-3 py-1 rounded text-sm ${isOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-            {isOnline ? <Wifi size={16} /> : <WifiOff size={16} />}
-            <span className="font-semibold">{isOnline ? 'Online' : 'Offline'}</span>
+          <div className={`flex items-center gap-1 px-2 py-1 rounded text-sm ${isOnline ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+            {isOnline ? <Wifi size={14} /> : <WifiOff size={14} />}
+            <span className="font-semibold text-xs">{isOnline ? 'Online' : 'Offline'}</span>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
         <div className={`md:col-span-2 p-4 border rounded bg-white space-y-3 ${showCartMobile ? 'hidden md:block' : 'block'}`}>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
+          {/* Products header row */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-semibold">Products</h2>
               {isWholesale && (
                 <button
                   onClick={() => setShowQuickAdd(true)}
-                  className="bg-blue-50 text-blue-600 px-3 py-1 rounded text-sm font-medium hover:bg-blue-100 transition-colors flex items-center gap-1"
+                  className="bg-blue-50 text-blue-600 px-2 py-1 rounded text-xs font-medium hover:bg-blue-100 transition-colors flex items-center gap-1"
                 >
-                  <Plus size={14} /> Quick Add
+                  <Plus size={12} /> Quick Add
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2">
               {products.length > itemsPerPage && (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50"
                   >
-                    Previous
+                    Prev
                   </button>
-                  <span className="text-xs text-gray-500">
-                    Page {currentPage} of {Math.ceil(products.length / itemsPerPage)}
+                  <span className="text-xs text-gray-500 whitespace-nowrap">
+                    {currentPage}/{Math.ceil(products.length / itemsPerPage)}
                   </span>
                   <button
                     onClick={() => setCurrentPage(p => Math.min(Math.ceil(products.length / itemsPerPage), p + 1))}
                     disabled={currentPage === Math.ceil(products.length / itemsPerPage)}
-                    className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="px-2 py-0.5 border rounded text-xs hover:bg-gray-50 disabled:opacity-50"
                   >
                     Next
                   </button>
                 </div>
               )}
-              <span className="text-sm text-gray-600">{products.length} items</span>
+              <span className="text-xs text-gray-500">{products.length} items</span>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 mb-2">
+          {/* Search + Controls row - wraps on mobile */}
+          <div className="flex flex-col gap-2 mb-2">
             <input
               type="text"
               placeholder="Search or scan..."
-              className="flex-1 border rounded px-2 py-1 text-sm"
+              className="w-full border rounded px-2 py-1 text-sm"
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   e.preventDefault();
@@ -1748,65 +1844,57 @@ export default function BillingPage() {
                 loadProducts(term);
               }}
             />
-
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600 font-medium whitespace-nowrap">Items per page:</label>
-              <select
-                value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="border rounded px-2 py-1 text-sm bg-white hover:bg-gray-50 cursor-pointer focus:ring-blue-500"
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={1000}>All</option>
-              </select>
-            </div>
-
-            {/* Sorting Controls */}
-            <div className="flex items-center gap-2">
-              <label className="flex items-center space-x-1 text-sm px-2 py-1 border rounded hover:bg-gray-50 bg-white cursor-pointer select-none" title="Show Favorites First">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                <label className="text-xs text-gray-600 whitespace-nowrap">Per page:</label>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="border rounded px-1 py-1 text-xs bg-white"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={1000}>All</option>
+                </select>
+              </div>
+              {/* Sorting Controls */}
+              <label className="flex items-center gap-1 text-xs px-2 py-1 border rounded hover:bg-gray-50 bg-white cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={favoritesFirst}
                   onChange={(e) => setFavoritesFirst(e.target.checked)}
-                  className="rounded text-blue-600 focus:ring-blue-500"
+                  className="rounded text-blue-600"
                 />
                 <span>Favorites</span>
               </label>
-
               <div className="flex border rounded overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => setSortBy('NAME')}
-                  className={`px-3 py-1 text-sm ${sortBy === 'NAME' ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
-                >
-                  Name
-                </button>
+                <button type="button" onClick={() => setSortBy('NAME')}
+                  className={`px-2 py-1 text-xs ${sortBy === 'NAME' ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-white text-gray-700'}`}
+                >Name</button>
                 <div className="w-px bg-gray-200"></div>
-                <button
-                  type="button"
-                  onClick={() => setSortBy('LATEST')}
-                  className={`px-3 py-1 text-sm ${sortBy === 'LATEST' ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-white hover:bg-gray-50 text-gray-700'}`}
-                >
-                  Latest
-                </button>
+                <button type="button" onClick={() => setSortBy('LATEST')}
+                  className={`px-2 py-1 text-xs ${sortBy === 'LATEST' ? 'bg-blue-100 text-blue-700 font-medium' : 'bg-white text-gray-700'}`}
+                >Latest</button>
               </div>
-
-              <button
-                type="button"
-                onClick={() => setSortAsc(!sortAsc)}
+              <button type="button" onClick={() => setSortAsc(!sortAsc)}
                 className="p-1 border rounded hover:bg-gray-50 text-gray-600"
-                title={sortAsc ? "Sort Ascending" : "Sort Descending"}
               >
-                {sortAsc ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
+                {sortAsc ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+              </button>
+              <button type="button" onClick={() => setSortBy(sortBy === 'NAME' ? 'LATEST' : 'NAME')}
+                className="p-1 border rounded hover:bg-gray-50 text-gray-600"
+              >
+                {sortBy === 'NAME' ? <ArrowUpAZ size={14} /> : <ArrowDownAZ size={14} />}
               </button>
             </div>
           </div>
+
+
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
             {sortedProducts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((p) => (
               <div key={p.id} className={`border rounded px-3 py-2 text-left relative ${p.isFavorite ? 'ring-1 ring-amber-400 bg-amber-50/30' : ''}`}>
@@ -1876,9 +1964,11 @@ export default function BillingPage() {
 
         <div className={
           showCartMobile 
-            ? "fixed inset-0 z-[60] overflow-y-auto bg-white p-6 pb-32 animate-in slide-in-from-bottom duration-300"
+            ? "fixed top-0 bottom-0 left-0 right-0 z-[60] bg-white flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300"
             : "hidden md:block md:sticky md:top-4 p-4 border rounded bg-white space-y-3"
         }>
+          
+          <div className={showCartMobile ? "flex-1 overflow-y-auto overflow-x-hidden p-3" : "space-y-3"}>
           
           {/* Mobile Back Button */}
           {showCartMobile && (
@@ -1967,39 +2057,116 @@ export default function BillingPage() {
 
           {!isWaiter && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
-              <input
-                type="text"
-                placeholder={`Customer Name ${isRestaurant && orderType === 'DELIVERY' ? '*' : '(Optional)'}`}
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-                className={`border rounded px-2 py-1 text-sm ${isRestaurant && orderType === 'DELIVERY' && !customerName ? 'border-red-300 bg-red-50/30' : ''}`}
-              />
-              <input
-                type="text"
-                placeholder={`Customer Phone ${isRestaurant && orderType === 'DELIVERY' ? '*' : '(Optional)'}`}
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-                className={`border rounded px-2 py-1 text-sm ${isRestaurant && orderType === 'DELIVERY' && !customerPhone ? 'border-red-300 bg-red-50/30' : ''}`}
-              />
+              {isWholesale ? (
+                <div className="md:col-span-2 flex gap-2">
+                  <div className="relative flex-1" ref={dropdownRef}>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Search Customer (Name or Phone)..."
+                        value={searchCustomerTerm}
+                        onFocus={() => setShowCustomerDropdown(true)}
+                        onChange={(e) => {
+                          setSearchCustomerTerm(e.target.value);
+                          setShowCustomerDropdown(true);
+                          // Clear selection if they are typing a new name
+                          if (!e.target.value) {
+                            setSelectedCustomerId('');
+                            setCustomerName('');
+                            setCustomerPhone('');
+                          }
+                        }}
+                        className="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none pr-10"
+                      />
+                      {selectedCustomerId && (
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                          <Check className="text-green-500" size={16} />
+                        </div>
+                      )}
+                    </div>
+
+                    {showCustomerDropdown && (
+                      <div className="absolute z-[100] mt-1 w-full bg-white border rounded-lg shadow-xl max-h-60 overflow-auto animate-in fade-in zoom-in-95 duration-100">
+                        {filteredCustomers.length > 0 ? (
+                          filteredCustomers.map((c) => (
+                            <div
+                              key={c.id}
+                              onClick={() => {
+                                setSelectedCustomerId(c.id);
+                                setCustomerName(c.name);
+                                setCustomerPhone(c.phone);
+                                setSearchCustomerTerm(`${c.name} (${c.phone})`);
+                                setShowCustomerDropdown(false);
+                              }}
+                              className={`px-4 py-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 transition-colors ${selectedCustomerId === c.id ? 'bg-blue-50' : ''}`}
+                            >
+                              <div className="flex justify-between items-center">
+                                <div>
+                                  <div className="font-semibold text-gray-900">{c.name}</div>
+                                  <div className="text-xs text-gray-500">{c.phone}</div>
+                                </div>
+                                <div className="text-right">
+                                  <div className={`text-xs font-bold ${Number(c.balance) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    {Number(c.balance) < 0 ? `Advance: Rs. ${formatPrice(Math.abs(c.balance))}` : `Balance: Rs. ${formatPrice(c.balance)}`}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="px-4 py-3 text-sm text-gray-500 italic">
+                            No customers found. Click "+" to add.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomerModal(true)}
+                    className="p-2 bg-blue-50 text-blue-600 rounded border border-blue-200 hover:bg-blue-100 transition-colors h-[38px] flex items-center justify-center"
+                    title="Add New Customer"
+                  >
+                    <Plus size={20} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    placeholder={`Customer Name ${isRestaurant && orderType === 'DELIVERY' ? '*' : '(Optional)'}`}
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    className={`border rounded px-2 py-1 text-sm ${isRestaurant && orderType === 'DELIVERY' && !customerName ? 'border-red-300 bg-red-50/30' : ''}`}
+                  />
+                  <input
+                    type="text"
+                    placeholder={`Customer Phone ${isRestaurant && orderType === 'DELIVERY' ? '*' : '(Optional)'}`}
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    className={`border rounded px-2 py-1 text-sm ${isRestaurant && orderType === 'DELIVERY' && !customerPhone ? 'border-red-300 bg-red-50/30' : ''}`}
+                  />
+                </>
+              )}
             </div>
           )}
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Cart</h2>
-            <div className="flex gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-semibold whitespace-nowrap">Cart</h2>
+            <div className="flex gap-2 min-w-0">
               <button
                 type="button"
                 onClick={handleSaveCartClick}
-                className={`text-sm px-3 py-1 text-white rounded transition-colors ${isCloudKitchen ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}
+                className={`text-sm px-3 py-1 text-white rounded transition-colors whitespace-nowrap ${isCloudKitchen ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}
                 disabled={loading || cart.length === 0}
               >
-                {isCloudKitchen ? '🗓 Schedule Order' : isWaiter && isRestaurant ? 'Send to Kitchen' : 'Save Cart'}
+                {isCloudKitchen ? '🗓 Schedule' : isWaiter && isRestaurant ? 'Kitchen' : 'Save'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowHeld((v) => !v)}
-                className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                className="text-sm px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors whitespace-nowrap"
               >
-                {showHeld ? 'Hide Saved' : isCloudKitchen ? 'Scheduled Orders' : 'Saved Carts'}
+                {showHeld ? 'Hide' : 'Saved'}
               </button>
             </div>
           </div>
@@ -2045,22 +2212,22 @@ export default function BillingPage() {
                       <div className={`font-medium break-words ${line.status === 'REJECTED' ? 'line-through text-red-700' : ''}`}>
                         {line.product.name}
                         {isWholesale ? (
-                          <span className="ml-2 inline-flex items-center gap-1">
-                            Rs. 
+                          <div className="mt-1 flex items-center gap-1 flex-wrap">
+                            <span className="text-xs text-gray-500">Price: Rs.</span>
                             <input
                               type="number"
                               value={line.price ?? (line.variant ? Number(line.variant.price) : Number(line.product.price))}
                               onChange={(e) => updateItemPrice(uniqueId, Number(e.target.value))}
-                              className="w-20 px-1 border rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                              className="w-24 px-1 border rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none font-semibold"
                             />
-                          </span>
+                          </div>
                         ) : (
                           <span className="ml-2 text-gray-600 font-normal text-sm">
                             (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-gray-500">{line.product.sku}</div>
+                      <div className="text-xs text-gray-500 break-all">{line.product.sku}</div>
                       {line.variant && (
                         <div className="text-xs text-gray-600">
                           {line.variant.name || 'Variant'}{' '}
@@ -2122,22 +2289,21 @@ export default function BillingPage() {
                         onChange={(e) => updateQuantity(uniqueId, Number(e.target.value))}
                       />
                     </div>
-                    <div className="flex items-center gap-2 flex-1">
-                      <label className="text-xs text-gray-700">Item Discount</label>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <label className="text-xs text-gray-700 whitespace-nowrap">Disc</label>
                       <select
-                        className="border rounded px-2 py-1 text-sm flex-1"
+                        className="border rounded px-1 py-1 text-xs flex-1 min-w-0"
                         value={line.discountType || 'AMOUNT'}
                         onChange={(e) => updateItemDiscount(uniqueId, e.target.value as any, line.discountValue || 0)}
                       >
-                        <option value="AMOUNT">Amount</option>
-                        <option value="PERCENT">Percent</option>
+                        <option value="AMOUNT">Amt</option>
+                        <option value="PERCENT">%</option>
                       </select>
                       <input
                         type="number"
                         step="0.01"
-                        min="0"
-                        className="w-20 border rounded px-2 py-1 text-sm"
-                        value={line.discountValue ?? 0}
+                        className="w-14 border rounded px-1 py-1 text-xs"
+                        value={line.discountValue || 0}
                         onChange={(e) =>
                           updateItemDiscount(
                             uniqueId,
@@ -2319,10 +2485,37 @@ export default function BillingPage() {
                 )}
                 <div className="flex justify-between text-green-700"><span>Tax ({totals.taxPercent}%)</span><span>+ Rs. {formatPrice(totals.tax)}</span></div>
                 <div className="flex justify-between font-semibold text-lg pt-2 border-t"><span>Total</span><span>Rs. {formatPrice(totals.total)}</span></div>
+                
+                {isWholesale && (
+                  <div className="space-y-1 pt-2 border-t mt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium">Amount Received</span>
+                      <input
+                        type="number"
+                        value={amountReceived || ''}
+                        onChange={(e) => setAmountReceived(Number(e.target.value))}
+                        className="w-24 sm:w-32 border rounded px-2 py-1 text-sm text-right font-semibold text-green-700 focus:ring-2 focus:ring-green-500 outline-none"
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="flex justify-between text-red-600 font-medium italic">
+                      <span>Remaining Balance</span>
+                      <span>Rs. {formatPrice(Math.max(0, totals.total - amountReceived))}</span>
+                    </div>
+                    {amountReceived > totals.total && (
+                      <div className="text-[11px] text-green-600 font-bold bg-green-50 p-1.5 rounded border border-green-200 mt-1 flex items-center gap-1 flex-wrap break-words">
+                        <Check size={12} className="shrink-0" />
+                        <span>Extra Rs. {formatPrice(amountReceived - totals.total)} will be added as Advance</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           }
+          </div> {/* End of scrollable area */}
 
+          <div className={showCartMobile ? "p-3 border-t bg-white shadow-lg-top" : ""}>
           <div className="flex gap-2">
             {!isWaiter ? (
               /* Smart Workflow Button for Cashier */
@@ -2335,8 +2528,15 @@ export default function BillingPage() {
                   return (
                     <button
                       disabled={loading || cart.length === 0}
-                      onClick={checkout}
-                      className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 font-bold text-lg shadow-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        checkout();
+                      }}
+                      style={{ touchAction: 'manipulation' }}
+                      className={showCartMobile 
+                        ? "flex-1 px-4 py-4 bg-green-600 text-white rounded-xl font-bold text-xl shadow-lg active:scale-95" 
+                        : "flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50 font-bold text-lg shadow-sm"
+                      }
                     >
                       {loading ? 'Processing...' : 'Proceed to Payment'}
                     </button>
@@ -2345,9 +2545,15 @@ export default function BillingPage() {
                   return (
                     <button
                       type="button"
-                      onClick={() => handleSaveCartClick()}
-                      disabled={loading || cart.length === 0}
-                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-medium"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSaveCartClick();
+                      }}
+                      style={{ touchAction: 'manipulation' }}
+                      className={showCartMobile 
+                        ? "flex-1 px-4 py-4 bg-blue-600 text-white rounded-xl font-bold text-xl shadow-lg active:scale-95" 
+                        : "flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-medium"
+                      }
                     >
                       {loading ? 'Saving...' : currentHeldBillId ? 'Update Cart' : (isGrocery || isWholesale) ? 'Save Cart' : 'Send to Kitchen'}
                     </button>
@@ -2379,6 +2585,7 @@ export default function BillingPage() {
               </button>
             )}
           </div>
+          </div> {/* End of Footer bar */}
           {
             invoiceData && (
               <div className="flex gap-2 mt-2">
@@ -2403,7 +2610,7 @@ export default function BillingPage() {
 
       {/* Payment Method Modal */}
       {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300] p-4">
           <div className="bg-white rounded-lg p-4 md:p-6 w-full max-w-sm md:max-w-md shadow-xl transform transition-all scale-100">
             <h3 className="text-xl md:text-lg font-bold mb-4 text-center md:text-left">Select Payment Method</h3>
             <div className="space-y-3 mb-6">
@@ -2453,7 +2660,7 @@ export default function BillingPage() {
 
       {/* Cart Name Prompt Modal */}
       {showCartNamePrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300]">
           <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">Save Cart</h3>
             <form onSubmit={handleCartNameSubmit}>
@@ -2621,6 +2828,80 @@ export default function BillingPage() {
         onCancel={() => setShowQuickAdd(false)}
         confirmText="Add & Bill"
         confirmVariant="primary"
+      />
+      {/* Quick Add Customer Modal */}
+      <ConfirmationModal
+        isOpen={showCustomerModal}
+        title="Quick Add Customer"
+        message={
+          <form onSubmit={handleCreateCustomer} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Full Name *</label>
+                <input
+                  type="text"
+                  value={newCustomerData.name}
+                  onChange={e => setNewCustomerData({ ...newCustomerData, name: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="e.g. John Doe"
+                  required
+                />
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Phone Number *</label>
+                <input
+                  type="text"
+                  value={newCustomerData.phone}
+                  onChange={e => setNewCustomerData({ ...newCustomerData, phone: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="e.g. 03001234567"
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Email (Optional)</label>
+                <input
+                  type="email"
+                  value={newCustomerData.email}
+                  onChange={e => setNewCustomerData({ ...newCustomerData, email: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="email@example.com"
+                />
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Opening Balance (Rs.)</label>
+                <input
+                  type="number"
+                  value={newCustomerData.openingBalance}
+                  onChange={e => setNewCustomerData({ ...newCustomerData, openingBalance: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div className="space-y-1 text-left">
+              <label className="text-sm font-semibold text-gray-700">Address (Optional)</label>
+              <textarea
+                value={newCustomerData.address}
+                onChange={e => setNewCustomerData({ ...newCustomerData, address: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                placeholder="Enter full address"
+                rows={2}
+              />
+            </div>
+            <button type="submit" className="hidden" id="submit-customer-form"></button>
+          </form>
+        }
+        onConfirm={() => {
+          document.getElementById('submit-customer-form')?.click();
+        }}
+        onCancel={() => {
+          setShowCustomerModal(false);
+          setNewCustomerData({ name: '', phone: '', email: '', address: '', openingBalance: '' });
+        }}
+        confirmText={loading ? 'Creating...' : 'Create Customer'}
       />
     </div>
   );

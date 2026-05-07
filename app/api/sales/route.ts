@@ -2,6 +2,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { calculateTotals } from '@/lib/pricing';
 import { NextResponse } from 'next/server';
+import { Decimal } from 'decimal.js';
 
 export const dynamic = "force-dynamic";
 
@@ -125,12 +126,19 @@ export async function POST(req: Request) {
       orderType,
       orderStatus,
       address,
-      deliveryDate
+      deliveryDate,
+      customerId,
+      amountReceived: amountReceivedInput
     } = body ?? {};
     if (!Array.isArray(items) || items.length === 0) return NextResponse.json({ error: 'No items' }, { status: 400 });
+    
+    // For Wholesale, CREDIT is a valid payment method conceptually if they don't pay full
     if (!['CASH', 'CARD'].includes(paymentMethod)) {
       return NextResponse.json({ error: 'Payment method must be CASH or CARD' }, { status: 400 });
     }
+
+    const amountReceived = new Decimal(amountReceivedInput || 0);
+
 
     // Delivery Validation for Restaurants
     if (user.businessType === 'RESTAURANT' && orderType === 'DELIVERY') {
@@ -245,6 +253,7 @@ export async function POST(req: Request) {
           clientId,
           cashierId: user.id,
           orderId,
+          customerId: customerId || null,
           subtotal: totals.subtotal,
           discount: (totals.itemDiscountTotal + totals.cartDiscountTotal + totals.couponValue),
           couponCode: coupon ? coupon.code : null,
@@ -252,6 +261,7 @@ export async function POST(req: Request) {
           taxPercent: totals.taxPercent,
           tax: totals.taxAmount,
           total: totals.total,
+          amountReceived: amountReceived.toNumber(),
           paymentMethod: paymentMethod,
           customerName: body.customerName || null,
           customerPhone: body.customerPhone || null,
@@ -262,6 +272,31 @@ export async function POST(req: Request) {
           deliveryDate: deliveryDate ? new Date(deliveryDate) : null,
         },
       });
+
+      // Handle Customer Balance and Ledger for Wholesale
+      if (customerId) {
+        const total = new Decimal(totals.total);
+        const unpaid = total.minus(amountReceived);
+
+        if (!unpaid.isZero()) {
+          const customer = await tx.customer.update({
+            where: { id: customerId },
+            data: { balance: { increment: unpaid.toNumber() } }
+          });
+
+          await tx.ledgerEntry.create({
+            data: {
+              clientId,
+              customerId,
+              saleId: saleRecord.id,
+              type: unpaid.greaterThan(0) ? 'CREDIT' : 'PAYMENT',
+              amount: unpaid.abs().toNumber(),
+              balance: customer.balance,
+              note: unpaid.greaterThan(0) ? `Credit for Sale #${orderId}` : `Advance payment from Sale #${orderId}`
+            }
+          });
+        }
+      }
 
       // Prepare SaleItems for bulk create
       const saleItemsData = totals.perItem.map((line) => ({
