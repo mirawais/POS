@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       // Create the customer
       const newCustomer = await tx.customer.create({
         data: {
-          clientId: user.clientId,
+          clientId: user.clientId as string,
           name,
           phone,
           email: email || null,
@@ -58,7 +58,7 @@ export async function POST(req: Request) {
       if (openingBalance && Number(openingBalance) !== 0) {
         await tx.ledgerEntry.create({
           data: {
-            clientId: user.clientId,
+            clientId: user.clientId as string,
             customerId: newCustomer.id,
             type: 'OPENING_BALANCE',
             amount: Math.abs(Number(openingBalance)),
