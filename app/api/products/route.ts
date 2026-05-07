@@ -55,7 +55,13 @@ export async function POST(req: Request) {
   if (!session || !(session as any).user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const user = (session as any).user;
-  if (!['ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(user.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const isWholesale = user.businessType === 'WHOLESALE';
+  
+  if (!['ADMIN', 'SUPER_ADMIN', 'MANAGER'].includes(user.role)) {
+    if (!(user.role === 'CASHIER' && isWholesale)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+  }
 
   // Manager Permission Check
   if (user.role === 'MANAGER' && !user.permissions?.manage_products) {
@@ -87,7 +93,14 @@ export async function POST(req: Request) {
     variants = [],
     rawMaterials = [],
   } = data ?? {};
-  if (!name || !sku) return NextResponse.json({ error: 'name and sku are required' }, { status: 400 });
+
+  // Auto-generate SKU for Wholesale Quick Add if missing
+  let finalSku = sku;
+  if (!finalSku && user.businessType === 'WHOLESALE') {
+    finalSku = `WH-${Date.now()}`;
+  }
+
+  if (!name || !finalSku) return NextResponse.json({ error: 'name and sku are required' }, { status: 400 });
   const priceNum = Number(price);
   if (Number.isNaN(priceNum)) return NextResponse.json({ error: 'price must be a number' }, { status: 400 });
   const costNum = costPrice !== undefined && costPrice !== null ? Number(costPrice) : null;
@@ -151,7 +164,7 @@ export async function POST(req: Request) {
     const created = await prisma.product.create({
       data: {
         name,
-        sku,
+        sku: finalSku,
         price: priceNum as any,
         costPrice: costNum as any,
         categoryId: categoryId || null,
@@ -160,8 +173,8 @@ export async function POST(req: Request) {
         type: type as any,
         isActive,
         isFavorite,
-        isUnlimited,
-        stock: stock !== undefined ? Number(stock) || 0 : 0,
+        isUnlimited: (user.businessType === 'WHOLESALE' && (stock === undefined || stock === 0 || stock === null)) ? true : isUnlimited,
+        stock: (user.businessType === 'WHOLESALE' && (stock === undefined || stock === 0 || stock === null)) ? 999999 : (stock !== undefined ? Number(stock) || 0 : 0),
         lowStockAt: lowStockAt !== undefined && lowStockAt !== null ? Number(lowStockAt) : null,
         variants: variantData.length ? { create: variantData as any } : undefined,
         materials: materialData.length ? { create: materialData.map((m) => ({ ...m, clientId })) } : undefined,
@@ -178,7 +191,7 @@ export async function POST(req: Request) {
     if (e.code === 'P2002') {
       const target = e.meta?.target;
       if (Array.isArray(target) && (target.includes('sku') || target.includes('clientId_sku_key'))) {
-        return NextResponse.json({ error: `Product with SKU "${sku}" already exists.` }, { status: 409 });
+        return NextResponse.json({ error: `Product with SKU "${finalSku}" already exists.` }, { status: 409 });
       }
       return NextResponse.json({ error: 'Duplicate entry found.' }, { status: 409 });
     }

@@ -34,26 +34,27 @@ export async function POST(req: Request) {
 
     if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 });
 
-    const client = await prisma.client.create({
-        data: {
-            name,
-            companyName,
-            contactNumber,
-            techContact,
-            email,
-            address,
-            businessType: businessType || 'GROCERY',
-            // Use provided activeDate or default to now if not provided (though schema default handles undefined, UI sends it)
-            activeDate: activeDate ? new Date(activeDate) : new Date(),
-            inactiveDate: inactiveDate ? new Date(inactiveDate) : null,
-        },
-    });
+    try {
+        const client = await prisma.client.create({
+            data: {
+                name,
+                companyName,
+                contactNumber,
+                techContact,
+                email,
+                address,
+                businessType: businessType || 'GROCERY',
+                // Use provided activeDate or default to now if not provided (though schema default handles undefined, UI sends it)
+                activeDate: activeDate ? new Date(activeDate) : new Date(),
+                inactiveDate: inactiveDate ? new Date(inactiveDate) : null,
+            },
+        });
 
-    // Optionally create default settings for the client?
-    // We can do that here or let them configure it later.
-    // For now, simple creation.
-
-    return NextResponse.json(client, { status: 201 });
+        return NextResponse.json(client, { status: 201 });
+    } catch (e: any) {
+        console.error("Create client error details:", e);
+        return NextResponse.json({ error: e.message || "Failed to create client" }, { status: 500 });
+    }
 }
 
 export async function DELETE(req: Request) {

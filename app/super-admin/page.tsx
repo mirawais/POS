@@ -154,6 +154,7 @@ export default function SuperAdminDashboard() {
                                     <option value="GROCERY">Grocery / Retail</option>
                                     <option value="RESTAURANT">Restaurant / Cafe</option>
                                     <option value="CLOUD_KITCHEN">Cloud Kitchen (Delivery Only)</option>
+                                    <option value="WHOLESALE">Wholesale / B2B</option>
                                 </select>
                             </div>
                             <div className="space-y-1">
@@ -291,7 +292,9 @@ export default function SuperAdminDashboard() {
                                         ? 'bg-orange-50 text-orange-600 border-orange-100'
                                         : (client as any).businessType === 'CLOUD_KITCHEN'
                                             ? 'bg-purple-50 text-purple-600 border-purple-100'
-                                            : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                            : (client as any).businessType === 'WHOLESALE'
+                                                ? 'bg-blue-50 text-blue-600 border-blue-100'
+                                                : 'bg-emerald-50 text-emerald-600 border-emerald-100'
                                     }`}>
                                     {(client as any).businessType || 'GROCERY'}
                                 </span>

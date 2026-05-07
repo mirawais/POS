@@ -128,91 +128,62 @@ export default function CashierOrdersPage() {
   };
 
   const printOrder = async (sale: Sale) => {
-    const setting = await fetch('/api/invoice-settings')
-      .then((r) => r.json())
-      .catch(() => ({}));
+    const setting = await fetch('/api/invoice-settings').then((r) => r.json()).catch(() => ({}));
 
-    const logo = setting?.logoUrl
-      ? `<img src="${setting.logoUrl}" style="max-width:150px;" />`
-      : '';
+    const fontSize = setting?.fontSize || 12;
+    const smallFontSize = Math.max(8, fontSize - 2);
+    const logo = setting?.logoUrl ? `<img src="${setting.logoUrl}" style="max-width:150px;" />` : '';
     const header = setting?.headerText ? `<div>${setting.headerText}</div>` : '';
     const footer = setting?.footerText ? `<div>${setting.footerText}</div>` : '';
 
-    const itemsHtml = sale.items
-      .map((item) => {
-        const netQty = item.quantity - (item.returnedQuantity || 0);
-        // Item total = Quantity × Unit Price only (no tax)
-        const itemTotal = Number(item.price) * item.quantity;
-        return `<tr>
-          <td>${item.product.name}${item.variant ? ` (${item.variant.name})` : ''}</td>
-          <td>${item.quantity}${item.returnedQuantity > 0 ? ` (Returned: ${item.returnedQuantity})` : ''}</td>
-          <td>Rs. ${Number(item.price).toFixed(2)}</td>
-          <td>Rs. ${itemTotal.toFixed(2)}</td>
-        </tr>`;
-      })
-      .join('');
+    const items = sale.items.map((item) => {
+      const itemTotal = Number(item.price) * item.quantity;
+      return `<tr><td>${item.product.name}${item.variant ? ` (${item.variant.name})` : ''}</td><td>${item.quantity}${item.returnedQuantity > 0 ? ` (Ret: ${item.returnedQuantity})` : ''}</td><td>Rs. ${Number(item.price).toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
+    }).join('');
 
     const html = `
       <html>
         <head>
-          <title>Order ${sale.orderId}</title>
-          <style>
-            body { font-family: sans-serif; margin: 0; padding: 10px; }
-            .invoice-header, .invoice-footer { text-align: center; margin-bottom: 10px; }
-            .invoice-details { font-size: 12px; margin-bottom: 10px; }
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            th, td { border: 1px solid #eee; padding: 5px; text-align: left; }
-            .totals { margin-top: 10px; font-size: 12px; text-align: right; }
-            .totals div { display: flex; justify-content: space-between; }
-            .totals strong { font-size: 14px; }
-          </style>
+          <title>Invoice ${sale.orderId}</title>
         </head>
-        <body>
-          <div class="invoice-header">
+        <body style="font-family: monospace; font-size: ${fontSize}px;">
+          <div style="text-align:center;">
             ${logo}
             ${header}
           </div>
-          <div class="invoice-details">
-            Order ID: ${sale.orderId}<br/>
+          <div style="margin-top:8px;font-size:${fontSize}px;">
+            Order ID: ${sale.orderId || 'N/A'}<br/>
             ${sale.fbrInvoiceId ? `FBR Invoice ID: ${sale.fbrInvoiceId}<br/>` : ''}
             Date: ${new Date(sale.createdAt).toLocaleString()}<br/>
             ${setting?.showCashier !== false ? `Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}<br/>` : ''}
             Payment Method: ${sale.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
             ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
-        ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
-        : ''}
+              ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+              : ''}
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Qty</th>
-                <th>Price</th>
-                <th>Total</th>
-              </tr>
-            </thead>
-            <tbody>${itemsHtml}</tbody>
+          <table style="width:100%;font-size:${fontSize}px;margin-top:8px;">
+            <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+            <tbody>${items}</tbody>
           </table>
-          <div class="totals">
-            <div><span>Subtotal:</span><span>Rs. ${Number(sale.subtotal).toFixed(2)}</span></div>
-            ${setting?.showDiscount !== false && Number(sale.discount) > 0 ? `<div><span>Discount:</span><span>-Rs. ${Number(sale.discount).toFixed(2)}</span></div>` : ''}
-            ${setting?.showTax !== false && Number(sale.tax) > 0 ? `<div><span>Tax:</span><span>Rs. ${Number(sale.tax).toFixed(2)}</span></div>` : ''}
-            <div><strong><span>Total:</span><span>Rs. ${Number(sale.total).toFixed(2)}</span></strong></div>
+          <div style="margin-top:8px;font-size:${fontSize}px;text-align:right;">
+            Subtotal: Rs. ${Number(sale.subtotal).toFixed(2)}<br/>
+            ${setting?.showDiscount !== false && Number(sale.discount) > 0 ? `Discount: Rs. ${Number(sale.discount).toFixed(2)}<br/>` : ''}
+            ${setting?.showTax !== false && Number(sale.tax) > 0 ? `Tax: Rs. ${Number(sale.tax).toFixed(2)}<br/>` : ''}
+            <strong>Total: Rs. ${Number(sale.total).toFixed(2)}</strong>
           </div>
-          <div class="invoice-footer">
-            ${footer}
-          </div>
+          <div style="text-align:center;margin-top:12px;font-size:${fontSize}px;">${footer}</div>
+          <div style="text-align:center;margin-top:4px;font-size:${smallFontSize}px;border-top:1px dashed #ccc;padding-top:4px;">Developed by: AmanatPOS - +923344668996</div>
         </body>
       </html>
     `;
 
-    const win = window.open('', 'PRINT', 'height=650,width=400');
+    const win = window.open('', `PRINT_${Date.now()}`, 'height=800,width=1200,menubar=0,toolbar=0,location=0,status=0');
     if (!win) return;
     win.document.write(html);
     win.document.close();
     win.focus();
     win.print();
-    win.close();
+    setTimeout(() => { try { win.close(); } catch (e) {} }, 1000);
   };
 
   return (

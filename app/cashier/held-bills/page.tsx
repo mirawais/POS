@@ -654,9 +654,19 @@ export default function HeldBillsPage() {
                          ))}
                       </div>
                     ) : (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Items:</span>
-                        <span className="font-semibold text-gray-900">{itemCount}</span>
+                      <div className="mt-2 space-y-1">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider border-b pb-0.5 mb-1">Items</p>
+                        <div className="max-h-32 overflow-y-auto pr-1">
+                          {((bill.data as any)?.cart || []).filter((i: any) => i.status !== 'REJECTED').map((item: any, idx: number) => (
+                            <div key={idx} className="text-xs text-gray-700 flex justify-between items-start gap-2 py-0.5 border-b border-gray-50 last:border-0">
+                              <span className="font-medium flex-1">
+                                <span className="font-bold text-blue-600 mr-1">{item.quantity}x</span> 
+                                {item.product?.name || 'Product'}
+                              </span>
+                              {item.variant && <span className="text-[9px] text-gray-400 italic">({item.variant.name})</span>}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                     {/* Cloud Kitchen: Delivery Date Display */}

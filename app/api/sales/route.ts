@@ -9,6 +9,7 @@ type LineInput = {
   productId: string;
   variantId?: string | null;
   quantity: number;
+  price?: number | null;
   discountType?: 'PERCENT' | 'AMOUNT' | null;
   discountValue?: number | null;
 };
@@ -177,11 +178,16 @@ export async function POST(req: Request) {
       const product = productMap.get(line.productId);
       if (!product) throw new Error(`Product not found: ${line.productId}`);
       const variantId = line.variantId;
-      let overridePrice: number | null = null;
-      if (variantId) {
-        const variant = (product as any).variants.find((v: any) => v.id === variantId);
-        if (!variant) throw new Error(`Variant not found for product: ${line.productId}`);
-        overridePrice = Number(variant.price);
+      let overridePrice: number | null = line.price !== undefined && line.price !== null ? Number(line.price) : null;
+      
+      if (overridePrice === null) {
+        if (variantId) {
+          const variant = (product as any).variants.find((v: any) => v.id === variantId);
+          if (!variant) throw new Error(`Variant not found for product: ${line.productId}`);
+          overridePrice = Number(variant.price);
+        } else {
+          overridePrice = Number(product.price);
+        }
       }
       const discountRule =
         line.discountType && line.discountValue !== undefined && line.discountValue !== null

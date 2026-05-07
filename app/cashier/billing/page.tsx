@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/notifications/ToastContainer';
-import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt, ShoppingCart, ArrowLeft } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt, ShoppingCart, ArrowLeft, Plus } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 import { formatPrice as baseFormatPrice } from '@/lib/utils';
 
@@ -37,6 +37,7 @@ type Tax = { id: string; name: string; percent: number; isDefault: boolean };
 type CartLine = {
   product: Product;
   quantity: number;
+  price?: number;
   discountType?: 'PERCENT' | 'AMOUNT';
   discountValue?: number | null;
   variant?: ProductVariant;
@@ -59,10 +60,63 @@ export default function BillingPage() {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastAddedId, setLastAddedId] = useState<string | null>(null);
+
+
+  const handleQuickAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickAddData.name || !quickAddData.price) {
+      showError('Name and Price are required');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...quickAddData,
+          price: Number(quickAddData.price),
+          costPrice: quickAddData.costPrice ? Number(quickAddData.costPrice) : null,
+          type: 'SIMPLE',
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to add product');
+      }
+      const newProduct = await res.json();
+      // Add to local products so it's searchable
+      setProducts(prev => [newProduct, ...prev]);
+      // Add to cart
+      addToCart(newProduct);
+      setShowQuickAdd(false);
+      setQuickAddData({ name: '', sku: '', categoryId: '', stock: '', costPrice: '', price: '', defaultTaxId: '' });
+      showSuccess('Product created and added to cart');
+    } catch (err: any) {
+      showError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateItemPrice = (uniqueId: string, newPrice: number) => {
+    setCart((prev) =>
+      prev.map((p) =>
+        `${p.product.id}:${p.variant?.id || 'base'}:${p.addedAt}` === uniqueId ? { ...p, price: newPrice } : p
+      )
+    );
+  };
+
   const [heldBills, setHeldBills] = useState<any[]>([]);
   const [taxMode, setTaxMode] = useState<'EXCLUSIVE' | 'INCLUSIVE'>('EXCLUSIVE');
   const { showError, showSuccess, showInfo, showToast } = useToast();
   const { data: session } = useSession();
+
+  // Wholesale States
+  const isWholesale = (session?.user as any)?.businessType === 'WHOLESALE';
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddData, setQuickAddData] = useState({ name: '', sku: '', categoryId: '', stock: '', costPrice: '', price: '', defaultTaxId: '' });
+  const [categories, setCategories] = useState<any[]>([]);
   const isRestaurant = session?.user?.businessType === 'RESTAURANT';
   const isGrocery = session?.user?.businessType === 'GROCERY';
   const isCloudKitchen = (session?.user as any)?.businessType === 'CLOUD_KITCHEN';
@@ -384,6 +438,9 @@ export default function BillingPage() {
   useEffect(() => {
     loadProducts('');
     loadTaxes();
+    if (isWholesale) {
+      fetch('/api/categories').then(res => res.json()).then(setCategories).catch(console.error);
+    }
     loadHeld();
 
     // Load caching for settings
@@ -576,7 +633,7 @@ export default function BillingPage() {
     let totalTaxAmount = 0;
 
     const perItem = cart.map((line) => {
-      const unitPrice = line.variant?.price ?? line.product.price;
+      const unitPrice = line.price ?? Number(line.variant?.price ?? line.product.price);
       // 1. Display Price (Subtotal Source)
       const base = unitPrice * line.quantity;
 
@@ -749,7 +806,8 @@ export default function BillingPage() {
       if (isLoadedCart) {
         setIsLoadedCart(false);
       }
-      return [...prev, { product, variant, quantity: 1, status: initialStatus, addedAt: addedAtStr, isDirectServe: false }];
+      const initialPrice = variant?.price ? Number(variant.price) : Number(product.price);
+      return [...prev, { product, variant, quantity: 1, price: initialPrice, status: initialStatus, addedAt: addedAtStr, isDirectServe: false }];
     });
     if (!taxId && (product as any).defaultTaxId) {
       setTaxId((product as any).defaultTaxId);
@@ -1013,6 +1071,7 @@ export default function BillingPage() {
       items: cart.map((c) => ({
         productId: c.product.id,
         quantity: c.quantity,
+        price: c.price ?? null,
         discountType: c.discountType ?? null,
         discountValue: c.discountValue ?? null,
         variantId: c.variant?.id ?? null,
@@ -1361,12 +1420,10 @@ export default function BillingPage() {
     // Always show prompt for cart name
     // Only pre-fill if we're updating a cart that was explicitly loaded from saved carts
     // We track this with a flag to distinguish between "loaded cart" vs "newly saved cart"
-    if (currentHeldBillId && isLoadedCart) {
-      const existingBill = heldBills.find(b => b.id === currentHeldBillId);
-      const existingLabel = existingBill?.data?.label || '';
-      setCartName(existingLabel);
-    } else {
-      setCartName('');
+    // Requirement 2 Fix: If we have a currentHeldBillId, just save it directly without prompting for a name
+    if (currentHeldBillId) {
+      saveCart();
+      return;
     }
 
     if (isRestaurant) {
@@ -1380,6 +1437,7 @@ export default function BillingPage() {
     }
 
     setShowCartNamePrompt(true);
+    setCartName('');
   };
 
   const saveCart = async (name?: string) => {
@@ -1634,7 +1692,17 @@ export default function BillingPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
         <div className={`md:col-span-2 p-4 border rounded bg-white space-y-3 ${showCartMobile ? 'hidden md:block' : 'block'}`}>
           <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Products</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="font-semibold">Products</h2>
+              {isWholesale && (
+                <button
+                  onClick={() => setShowQuickAdd(true)}
+                  className="bg-blue-50 text-blue-600 px-3 py-1 rounded text-sm font-medium hover:bg-blue-100 transition-colors flex items-center gap-1"
+                >
+                  <Plus size={14} /> Quick Add
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-4">
               {products.length > itemsPerPage && (
                 <div className="flex items-center gap-2">
@@ -1945,8 +2013,11 @@ export default function BillingPage() {
                       {cartLabel ? (
                         <div className="font-medium">{cartLabel}</div>
                       ) : null}
-                      <div className="text-xs text-gray-500">
-                        Saved at {new Date(b.createdAt).toLocaleString()}
+                      <div className="text-[10px] text-gray-500 line-clamp-1 max-w-[180px]">
+                        {(b.data as any)?.cart?.map((item: any) => item.product.name).join(', ')}
+                      </div>
+                      <div className="text-[10px] text-gray-400">
+                        {new Date(b.createdAt).toLocaleString()}
                       </div>
                     </div>
                     <div className="flex gap-2">
@@ -1973,9 +2044,21 @@ export default function BillingPage() {
                     <div>
                       <div className={`font-medium break-words ${line.status === 'REJECTED' ? 'line-through text-red-700' : ''}`}>
                         {line.product.name}
-                        <span className="ml-2 text-gray-600 font-normal text-sm">
-                          (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
-                        </span>
+                        {isWholesale ? (
+                          <span className="ml-2 inline-flex items-center gap-1">
+                            Rs. 
+                            <input
+                              type="number"
+                              value={line.price ?? (line.variant ? Number(line.variant.price) : Number(line.product.price))}
+                              onChange={(e) => updateItemPrice(uniqueId, Number(e.target.value))}
+                              className="w-20 px-1 border rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                            />
+                          </span>
+                        ) : (
+                          <span className="ml-2 text-gray-600 font-normal text-sm">
+                            (Rs. {formatPrice(line.variant ? line.variant.price : line.product.price)})
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500">{line.product.sku}</div>
                       {line.variant && (
@@ -2245,8 +2328,8 @@ export default function BillingPage() {
               /* Smart Workflow Button for Cashier */
               (() => {
                 const hasPendingItems = cart.some(item => !item.status || item.status === 'PENDING');
-                // Status Check: "Proceed to Payment" ONLY if (Grocery OR (Loaded AND No Pending Items))
-                const showCheckout = isGrocery || (isLoadedCart && !hasPendingItems);
+                // Status Check: "Proceed to Payment" ONLY if (Grocery/Wholesale OR (Loaded AND No Pending Items))
+                const showCheckout = isGrocery || isWholesale || (isLoadedCart && !hasPendingItems);
 
                 if (showCheckout) {
                   return (
@@ -2266,7 +2349,7 @@ export default function BillingPage() {
                       disabled={loading || cart.length === 0}
                       className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 font-medium"
                     >
-                      {loading ? 'Sending...' : (currentHeldBillId && isLoadedCart) ? 'Update & Send to Kitchen' : 'Send to Kitchen'}
+                      {loading ? 'Saving...' : currentHeldBillId ? 'Update Cart' : (isGrocery || isWholesale) ? 'Save Cart' : 'Send to Kitchen'}
                     </button>
                   );
                 }
@@ -2437,6 +2520,108 @@ export default function BillingPage() {
           <span className="font-semibold">View Cart</span>
         </button>
       )}
+      {/* Quick Add Product Modal */}
+      <ConfirmationModal
+        isOpen={showQuickAdd}
+        title="Quick Add Product"
+        message={
+          <form onSubmit={handleQuickAdd} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Product Name *</label>
+                <input
+                  type="text"
+                  value={quickAddData.name}
+                  onChange={e => setQuickAddData({ ...quickAddData, name: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
+                  placeholder="Enter name"
+                  required
+                />
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">SKU (Optional)</label>
+                <input
+                  type="text"
+                  value={quickAddData.sku}
+                  onChange={e => setQuickAddData({ ...quickAddData, sku: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
+                  placeholder="Leave empty for auto-gen"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Category</label>
+                <select
+                  value={quickAddData.categoryId}
+                  onChange={e => setQuickAddData({ ...quickAddData, categoryId: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg outline-none bg-white text-base"
+                >
+                  <option value="">No Category</option>
+                  {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Tax</label>
+                <select
+                  value={quickAddData.defaultTaxId}
+                  onChange={e => setQuickAddData({ ...quickAddData, defaultTaxId: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg outline-none bg-white text-base"
+                >
+                  <option value="">No Tax</option>
+                  {taxes.map(t => <option key={t.id} value={t.id}>{t.name} ({t.percent}%)</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Quantity (Stock)</label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={quickAddData.stock}
+                  onChange={e => setQuickAddData({ ...quickAddData, stock: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                  placeholder="999999"
+                />
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Purchase Price</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={quickAddData.costPrice}
+                  onChange={e => setQuickAddData({ ...quickAddData, costPrice: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="space-y-1 text-left">
+                <label className="text-sm font-semibold text-gray-700">Sale Price *</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={quickAddData.price}
+                  onChange={e => setQuickAddData({ ...quickAddData, price: e.target.value })}
+                  className="w-full px-3 py-2.5 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                  placeholder="0.00"
+                  required
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 italic mt-2 bg-gray-50 p-2 rounded">
+              * SKU will be auto-generated. Stock will be set to 999999 for instant billing.
+            </p>
+          </form>
+        }
+        onConfirm={() => {
+          const form = document.querySelector('form');
+          if (form) form.requestSubmit();
+        }}
+        onCancel={() => setShowQuickAdd(false)}
+        confirmText="Add & Bill"
+        confirmVariant="primary"
+      />
     </div>
   );
 }

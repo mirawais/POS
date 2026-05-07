@@ -55,6 +55,7 @@ enum BusinessType {
   GROCERY
   RESTAURANT
   CLOUD_KITCHEN
+  WHOLESALE
 }
 
 model User {

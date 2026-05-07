@@ -51,6 +51,69 @@ export default function OrderReportPage() {
         return <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${styles[status] || 'bg-blue-100 text-blue-800 border-blue-200'}`}>{status}</span>;
     };
 
+    const handlePrintReceipt = async (sale: any) => {
+        const setting = await fetch('/api/invoice-settings').then(r => r.json()).catch(() => ({}));
+
+        const fontSize = setting?.fontSize || 12;
+        const smallFontSize = Math.max(8, fontSize - 2);
+        const logo = setting?.logoUrl ? `<img src="${setting.logoUrl}" style="max-width:150px;" />` : '';
+        const header = setting?.headerText ? `<div>${setting.headerText}</div>` : '';
+        const footer = setting?.footerText ? `<div>${setting.footerText}</div>` : '';
+
+        const items = sale.items?.map((item: any) => {
+            const price = Number(item.price);
+            const itemTotal = price * item.quantity;
+            return `<tr><td>${item.product?.name || 'Unknown'}${item.variant?.name ? ` (${item.variant.name})` : ''}</td><td>${item.quantity}</td><td>Rs. ${price.toFixed(2)}</td><td>Rs. ${itemTotal.toFixed(2)}</td></tr>`;
+        }).join('') || '';
+
+        const totalDiscount = Number(sale.cartDiscountTotal || 0) + Number(sale.itemDiscountTotal || 0) + Number(sale.couponValue || 0);
+
+        const html = `
+            <html>
+                <head>
+                    <title>Invoice ${sale.orderId || 'N/A'}</title>
+                </head>
+                <body style="font-family: monospace; font-size: ${fontSize}px;">
+                    <div style="text-align:center;">
+                        ${logo}
+                        ${header}
+                    </div>
+                    <div style="margin-top:8px;font-size:${fontSize}px;">
+                        Order ID: ${sale.orderId || 'N/A'}<br/>
+                        ${sale.fbrInvoiceId ? `FBR Invoice ID: ${sale.fbrInvoiceId}<br/>` : ''}
+                        Date: ${new Date(sale.createdAt).toLocaleString()}<br/>
+                        ${setting?.showCashier !== false ? `Cashier: ${sale.cashier?.name || sale.cashier?.email || 'Unknown'}<br/>` : ''}
+                        Payment Method: ${sale.paymentMethod === 'CARD' ? 'Card' : 'Cash'}<br/>
+                        ${setting?.customFields && Array.isArray(setting.customFields) && setting.customFields.length > 0
+                            ? setting.customFields.map((field: any) => `<div><strong>${field.label}:</strong> ${field.value}</div>`).join('')
+                            : ''}
+                    </div>
+                    <table style="width:100%;font-size:${fontSize}px;margin-top:8px;">
+                        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+                        <tbody>${items}</tbody>
+                    </table>
+                    <div style="margin-top:8px;font-size:${fontSize}px;text-align:right;">
+                        Subtotal: Rs. ${Number(sale.subtotal || sale.total).toFixed(2)}<br/>
+                        ${setting?.showDiscount !== false ? `Discount: Rs. ${totalDiscount.toFixed(2)}<br/>` : ''}
+                        ${setting?.showTax !== false && sale.tax ? `Tax: Rs. ${Number(sale.tax).toFixed(2)}<br/>` : ''}
+                        <strong>Total: Rs. ${Number(sale.total).toFixed(2)}</strong>
+                    </div>
+                    <div style="text-align:center;margin-top:12px;font-size:${fontSize}px;">${footer}</div>
+                    <div style="text-align:center;margin-top:4px;font-size:${smallFontSize}px;border-top:1px dashed #ccc;padding-top:4px;">Developed by: AmanatPOS - +923344668996</div>
+                </body>
+            </html>
+        `;
+
+        const win = window.open('', `PRINT_${Date.now()}`, 'height=800,width=1200,menubar=0,toolbar=0,location=0,status=0');
+        if (win) {
+            win.document.write(html);
+            win.document.close();
+            win.focus();
+            win.print();
+            setTimeout(() => { try { win.close(); } catch (e) {} }, 1000);
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-50">
             <AdminHeader title="Order Management" />
@@ -153,7 +216,7 @@ export default function OrderReportPage() {
                                                                     </div>
                                                                 </div>
                                                             </div>
-                                                            <button className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-black transition-all font-black text-xs uppercase tracking-widest shadow-lg">
+                                                            <button onClick={() => handlePrintReceipt(sale)} className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 bg-gray-900 text-white rounded-xl hover:bg-black transition-all font-black text-xs uppercase tracking-widest shadow-lg">
                                                                 <Printer size={16} /> Print Full Receipt
                                                             </button>
                                                         </div>
