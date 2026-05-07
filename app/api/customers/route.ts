@@ -12,6 +12,9 @@ export async function GET() {
     where: { email: session.user.email },
   });
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  if (!user.clientId) {
+    return NextResponse.json({ error: 'User has no associated client' }, { status: 403 });
+  }
 
   const customers = await prisma.customer.findMany({
     where: { clientId: user.clientId },
@@ -29,6 +32,7 @@ export async function POST(req: Request) {
     where: { email: session.user.email },
   });
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  if (!user.clientId) return NextResponse.json({ error: 'User has no associated client' }, { status: 403 });
 
   try {
     const { name, phone, email, address, openingBalance } = await req.json();

@@ -31,14 +31,14 @@ export async function GET(req: Request) {
     const isManager = user.role === 'MANAGER';
     const permissions = user.permissions || {};
 
-    // CASHIERS are allowed (maybe for their own history), but but we'll focus on MANAGER for now.
-    // Actually, let's allow ADMIN, SUPER_ADMIN, and MANAGER with view_reports.
-    // If a CASHIER calls this, they get their own client data, but we might want to restrict this further later.
     if (user.role === 'MANAGER' && !permissions.view_reports) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
-    let clientId = user.clientId as string;
+    let clientId: string | undefined = user.clientId;
+    if (!clientId && user.role !== 'SUPER_ADMIN') {
+      return NextResponse.json({ error: 'Forbidden: No client associated' }, { status: 403 });
+    }
     const { searchParams } = new URL(req.url);
 
     // Super Admin impersonation
