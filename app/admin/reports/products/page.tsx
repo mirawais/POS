@@ -136,11 +136,11 @@ export default function ProductReportPage() {
     const today = new Date().toISOString().split('T')[0];
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50 overflow-x-hidden">
             <AdminHeader title="Product Reports" />
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-6">
                 <div>
-                    <h1 className="text-2xl font-semibold text-gray-900">Product Performance</h1>
+                    <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Product Performance</h1>
                     <p className="text-sm text-gray-500">Track best-sellers and individual product revenue.</p>
                 </div>
 
@@ -194,28 +194,66 @@ export default function ProductReportPage() {
                 </div>
 
                 <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
+                    {/* Mobile cards */}
+                    <div className="sm:hidden divide-y divide-gray-100">
+                        {productStats.map((p, i) => (
+                            <div key={i} className="px-4 py-4 space-y-3">
+                                <div>
+                                    <p className="text-sm font-bold text-gray-900 break-words">{p.name}</p>
+                                    {p.variantName && (
+                                        <p className="text-[10px] text-blue-500 font-bold uppercase mt-0.5">{p.variantName}</p>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                    <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">SKU</p>
+                                        <p className="mt-1 font-mono text-gray-700 break-all">{p.sku}</p>
+                                    </div>
+                                    <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Qty Sold</p>
+                                        <p className="mt-1 font-bold text-gray-800">{p.quantity}</p>
+                                    </div>
+                                    <div className="rounded-lg bg-gray-50 px-3 py-2">
+                                        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Returned</p>
+                                        <p className="mt-1 font-bold text-red-500">{p.returned > 0 ? p.returned : '-'}</p>
+                                    </div>
+                                    <div className="rounded-lg bg-blue-50 px-3 py-2">
+                                        <p className="text-[10px] font-semibold uppercase tracking-wider text-blue-500">Revenue</p>
+                                        <p className="mt-1 font-black text-blue-700 break-words">Rs. {p.total.toLocaleString()}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                        {productStats.length === 0 && (
+                            <div className="px-6 py-10 text-center text-gray-400 italic font-medium text-sm">
+                                No product data found for this period.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Desktop table */}
+                    <div className="hidden sm:block overflow-x-auto">
+                        <table className="w-full table-fixed text-sm text-left">
                             <thead className="text-xs font-bold text-gray-400 bg-gray-50 border-b uppercase tracking-widest">
                                 <tr>
-                                    <th className="px-6 py-4">Product Analysis</th>
-                                    <th className="px-6 py-4">SKU</th>
-                                    <th className="px-6 py-4 text-center">Qty Sold</th>
-                                    <th className="px-6 py-4 text-center">Returned</th>
-                                    <th className="px-6 py-4 text-right">Revenue</th>
+                                    <th className="px-3 sm:px-6 py-4 w-[34%]">Product Analysis</th>
+                                    <th className="px-3 sm:px-6 py-4 w-[20%]">SKU</th>
+                                    <th className="px-3 sm:px-6 py-4 w-[14%] text-center">Qty Sold</th>
+                                    <th className="px-3 sm:px-6 py-4 w-[14%] text-center">Returned</th>
+                                    <th className="px-3 sm:px-6 py-4 w-[18%] text-right">Revenue</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {productStats.map((p, i) => (
                                     <tr key={i} className="hover:bg-gray-50/50 transition-colors">
-                                        <td className="px-6 py-4">
-                                            <div className="font-bold text-gray-800">{p.name}</div>
+                                        <td className="px-3 sm:px-6 py-4">
+                                            <div className="font-bold text-gray-800 break-words">{p.name}</div>
                                             {p.variantName && <div className="text-[10px] text-blue-500 font-bold uppercase">{p.variantName}</div>}
                                         </td>
-                                        <td className="px-6 py-4 text-gray-500 font-mono">{p.sku}</td>
-                                        <td className="px-6 py-4 text-center font-bold text-gray-700">{p.quantity}</td>
-                                        <td className="px-6 py-4 text-center text-red-500 font-bold">{p.returned > 0 ? p.returned : '-'}</td>
-                                        <td className="px-6 py-4 text-right font-black text-blue-700">Rs. {p.total.toLocaleString()}</td>
+                                        <td className="px-3 sm:px-6 py-4 text-gray-500 font-mono break-all">{p.sku}</td>
+                                        <td className="px-3 sm:px-6 py-4 text-center font-bold text-gray-700">{p.quantity}</td>
+                                        <td className="px-3 sm:px-6 py-4 text-center text-red-500 font-bold">{p.returned > 0 ? p.returned : '-'}</td>
+                                        <td className="px-3 sm:px-6 py-4 text-right font-black text-blue-700 break-words">Rs. {p.total.toLocaleString()}</td>
                                     </tr>
                                 ))}
                                 {productStats.length === 0 && (

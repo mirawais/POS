@@ -51,6 +51,8 @@ export async function GET(req: Request) {
     const endDate = searchParams.get('endDate');
     const cashierId = searchParams.get('cashierId');
     const orderId = searchParams.get('orderId');
+    const all = searchParams.get('all') === 'true';
+    const limitParam = searchParams.get('limit');
 
     const where: any = {};
     if (clientId) {
@@ -73,10 +75,21 @@ export async function GET(req: Request) {
       where.orderType = 'DELIVERY';
     }
 
+    // Default safety cap for regular pages; super admin can request full range for global reporting.
+    let take: number | undefined = 1000;
+    if (all && user.role === 'SUPER_ADMIN') {
+      take = undefined;
+    } else if (limitParam) {
+      const parsed = Number(limitParam);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        take = Math.min(Math.floor(parsed), 5000);
+      }
+    }
+
     const sales = await prisma.sale.findMany({
       where,
       include: {
-        client: { select: { name: true } },
+        client: { select: { id: true, name: true, businessType: true } },
         cashier: { select: { id: true, name: true, email: true } },
         refunds: { select: { id: true, refundId: true, total: true } },
         items: {
@@ -87,7 +100,7 @@ export async function GET(req: Request) {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 1000,
+      ...(typeof take === 'number' ? { take } : {}),
     });
 
     return NextResponse.json(sales);

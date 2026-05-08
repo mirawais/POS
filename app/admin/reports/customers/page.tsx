@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { AdminHeader } from '@/components/layout/AdminHeader';
 import { Users, Search, Download, Calendar } from 'lucide-react';
 
 export default function CustomerReportPage() {
     const { data: session } = useSession();
     const [sales, setSales] = useState<any[]>([]);
+    const [customers, setCustomers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchFilter, setSearchFilter] = useState('');
@@ -42,17 +44,24 @@ export default function CustomerReportPage() {
         }
     };
 
-    const fetchSales = async () => {
+    const fetchReportData = async () => {
         try {
             setLoading(true);
             const params = new URLSearchParams();
             if (startDate) params.append('startDate', startDate);
             if (endDate) params.append('endDate', endDate);
 
-            const response = await fetch(`/api/sales?${params.toString()}`);
-            if (!response.ok) throw new Error('Failed to fetch data');
-            const data = await response.json();
-            setSales(data.filter((s: any) => s.orderStatus !== 'WASTED'));
+            const [salesResponse, customersResponse] = await Promise.all([
+                fetch(`/api/sales?${params.toString()}`),
+                fetch('/api/customers'),
+            ]);
+
+            if (!salesResponse.ok || !customersResponse.ok) throw new Error('Failed to fetch data');
+
+            const salesData = await salesResponse.json();
+            const customerData = await customersResponse.json();
+            setSales(salesData.filter((s: any) => s.orderStatus !== 'WASTED'));
+            setCustomers(customerData);
         } catch (err: any) {
             setError(err.message || 'An error occurred');
         } finally {
@@ -65,7 +74,7 @@ export default function CustomerReportPage() {
     }, [dateFilter]);
 
     useEffect(() => {
-        fetchSales();
+        fetchReportData();
     }, [startDate, endDate]);
 
     const customerStats = (() => {
@@ -94,6 +103,25 @@ export default function CustomerReportPage() {
             }
         });
 
+        for (const customer of customers) {
+            const key = (customer.name || '').toLowerCase() + (customer.phone || '');
+            if (!statsMap.has(key)) {
+                statsMap.set(key, {
+                    id: customer.id,
+                    name: customer.name || 'N/A',
+                    phone: customer.phone || 'N/A',
+                    orders: 0,
+                    spent: 0,
+                    lastVisit: customer.createdAt,
+                    balance: Number(customer.balance) || 0,
+                });
+            } else {
+                const existing = statsMap.get(key);
+                existing.id = existing.id || customer.id;
+                existing.balance = Number(customer.balance) || 0;
+            }
+        }
+
         let list = Array.from(statsMap.values()).sort((a, b) => b.spent - a.spent);
         if (searchFilter) {
             const s = searchFilter.toLowerCase();
@@ -117,9 +145,9 @@ export default function CustomerReportPage() {
     return (
         <div className="min-h-screen bg-gray-50">
             <AdminHeader title="Customer Insights" />
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-6">
                 <div>
-                    <h1 className="text-2xl font-semibold text-gray-900">Customer History</h1>
+                    <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Customer History</h1>
                     <p className="text-sm text-gray-500">Analyze shopping patterns and loyalty metrics.</p>
                 </div>
 
@@ -159,7 +187,7 @@ export default function CustomerReportPage() {
 
                 <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
+                        <table className="w-full min-w-[760px] text-sm text-left">
                             <thead className="text-xs font-bold text-gray-400 bg-gray-50/50 border-b uppercase tracking-widest">
                                 <tr>
                                     <th className="px-6 py-4">Customer Name</th>
@@ -167,6 +195,9 @@ export default function CustomerReportPage() {
                                     <th className="px-6 py-4 text-center">Visits</th>
                                     <th className="px-6 py-4 text-right">Lifetime Spent</th>
                                     <th className="px-6 py-4 text-right">Most Recent</th>
+                                    {session?.user?.businessType === 'WHOLESALE' && (
+                                        <th className="px-6 py-4 text-right">Action</th>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
@@ -184,10 +215,24 @@ export default function CustomerReportPage() {
                                         <td className="px-6 py-4 text-center font-bold text-gray-700">{c.orders}</td>
                                         <td className="px-6 py-4 text-right font-black text-emerald-600">Rs. {c.spent.toLocaleString()}</td>
                                         <td className="px-6 py-4 text-right text-gray-400 text-xs font-medium">{new Date(c.lastVisit).toLocaleDateString()}</td>
+                                        {session?.user?.businessType === 'WHOLESALE' && (
+                                            <td className="px-6 py-4 text-right">
+                                                {c.id ? (
+                                                    <Link
+                                                        href={`/admin/reports/customers/${c.id}`}
+                                                        className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                                                    >
+                                                        View Ledger
+                                                    </Link>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400">No ledger</span>
+                                                )}
+                                            </td>
+                                        )}
                                     </tr>
                                 ))}
                                 {customerStats.length === 0 && (
-                                    <tr><td colSpan={5} className="px-6 py-12 text-center text-gray-400 italic font-medium">No customer matching your criteria was found.</td></tr>
+                                    <tr><td colSpan={session?.user?.businessType === 'WHOLESALE' ? 6 : 5} className="px-6 py-12 text-center text-gray-400 italic font-medium">No customer matching your criteria was found.</td></tr>
                                 )}
                             </tbody>
                         </table>

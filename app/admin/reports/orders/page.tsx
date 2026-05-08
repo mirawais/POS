@@ -117,13 +117,13 @@ export default function OrderReportPage() {
     return (
         <div className="min-h-screen bg-gray-50">
             <AdminHeader title="Order Management" />
-            <div className="p-6 space-y-6">
+            <div className="p-4 sm:p-6 space-y-6">
                 <div>
-                    <h1 className="text-2xl font-semibold text-gray-900">Order History</h1>
+                    <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Order History</h1>
                     <p className="text-sm text-gray-500">Detailed list of all transactions and order statuses.</p>
                 </div>
 
-                <div className="p-4 border rounded-xl bg-white shadow-sm flex flex-col md:flex-row gap-4 items-end">
+                <div className="p-4 border rounded-xl bg-white shadow-sm flex flex-col lg:flex-row gap-4 lg:items-end">
                     <div className="flex-1 w-full">
                         <label className="block text-xs font-bold text-gray-400 mb-1 uppercase tracking-widest">Search Order</label>
                         <div className="relative">
@@ -140,15 +140,15 @@ export default function OrderReportPage() {
                             <option value="PAID">Paid</option>
                         </select>
                     </div>
-                    <div className="flex gap-2 w-full md:w-auto">
-                        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded-lg p-2 text-sm" />
-                        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded-lg p-2 text-sm" />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full lg:w-auto">
+                        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded-lg p-2 text-sm w-full" />
+                        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded-lg p-2 text-sm w-full" />
                     </div>
                 </div>
 
                 <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left">
+                        <table className="w-full min-w-[760px] text-sm text-left">
                             <thead className="text-xs font-bold text-gray-400 bg-gray-50 border-b uppercase tracking-widest">
                                 <tr>
                                     <th className="px-6 py-4">Order Details</th>
@@ -186,8 +186,8 @@ export default function OrderReportPage() {
                                         </tr>
                                         {expandedSale === sale.id && (
                                             <tr>
-                                                <td colSpan={6} className="bg-gray-50/50 px-12 py-6 border-b">
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                                <td colSpan={6} className="bg-gray-50/50 px-4 sm:px-8 md:px-12 py-6 border-b">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
                                                         <div>
                                                             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Line Items ({sale.items?.length})</p>
                                                             <div className="space-y-2">

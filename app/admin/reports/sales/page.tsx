@@ -160,10 +160,10 @@ export default function SalesReportPage() {
     return (
         <div className="min-h-screen bg-gray-50">
             <AdminHeader title="Sales Reports" />
-            <div className="p-6 space-y-6">
-                <div className="flex justify-between items-center">
+            <div className="p-4 sm:p-6 space-y-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                     <div>
-                        <h1 className="text-2xl font-semibold text-gray-900">Revenue Analytics</h1>
+                        <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Revenue Analytics</h1>
                         <p className="text-sm text-gray-500">Comprehensive breakdown of sales and modes.</p>
                     </div>
                 </div>
@@ -236,7 +236,7 @@ export default function SalesReportPage() {
                             </div>
                         </div>
                         {dateFilter === 'custom' && (
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <div className="flex-1">
                                     <label className="block text-sm font-semibold text-gray-600 mb-1 uppercase tracking-wider">Start</label>
                                     <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm" />
@@ -278,7 +278,7 @@ export default function SalesReportPage() {
 
                         {/* FBR Tax Audit Section */}
                         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-                            <div className="px-6 py-4 bg-gray-50 border-b flex items-center justify-between">
+                            <div className="px-4 sm:px-6 py-4 bg-gray-50 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                 <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                                     <Shield size={20} className="text-blue-600" />
                                     FBR Tax Compliance Audit
@@ -344,7 +344,7 @@ export default function SalesReportPage() {
 
                         {/* Primary Revenue Mode Grid */}
                         {isRestaurant && (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
                                 <div className="bg-blue-50/50 border border-blue-100 p-6 rounded-xl shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
                                     <div className="absolute right-[-10px] bottom-[-10px] text-blue-100 group-hover:text-blue-200 transition-colors rotate-12">
                                         <Utensils size={100} />
@@ -414,8 +414,8 @@ export default function SalesReportPage() {
 
                         {/* Wastage Alert Card */}
                         {isRestaurant && summary.wastageLoss > 0 && (
-                            <div className="bg-red-50 border-2 border-red-200 p-6 rounded-xl shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-                                <div className="flex items-center gap-6">
+                            <div className="bg-red-50 border-2 border-red-200 p-4 sm:p-6 rounded-xl shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+                                <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-left">
                                     <div className="p-4 bg-red-100 rounded-xl text-red-600">
                                         <AlertCircle size={32} />
                                     </div>
@@ -434,14 +434,14 @@ export default function SalesReportPage() {
                         {/* Rider Performance Summary */}
                         {isRestaurant && (
                             <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-                                <div className="px-6 py-4 bg-gray-50 border-b flex items-center justify-between">
+                                <div className="px-4 sm:px-6 py-4 bg-gray-50 border-b flex items-center justify-between">
                                     <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
                                         <Truck size={20} className="text-emerald-600" />
                                         Rider Logistics Performance
                                     </h3>
                                 </div>
                                 <div className="overflow-x-auto">
-                                    <table className="w-full text-sm text-left">
+                                    <table className="w-full min-w-[680px] text-sm text-left">
                                         <thead className="text-xs font-bold text-gray-400 uppercase tracking-widest bg-white border-b">
                                             <tr>
                                                 <th className="px-6 py-4">Rider Identity</th>

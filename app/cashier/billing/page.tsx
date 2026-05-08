@@ -1099,6 +1099,7 @@ export default function BillingPage() {
         }
       }
       showSuccess(`Offline sync completed.`);
+      loadCustomers();
     } catch (e) {
       console.error('Sync error', e);
     } finally {
@@ -1241,6 +1242,8 @@ export default function BillingPage() {
       const data = await res.json();
       setInvoiceData(data);
       showSuccess(`Sale recorded. Total: Rs. ${Number(data?.totals?.total ?? 0).toFixed(2)}`);
+      // Refresh customers to get updated balances (advances/debt)
+      loadCustomers();
 
     } catch (e: any) {
       if (e.message === 'Offline' || e.message === 'Failed to fetch' || !navigator.onLine) {

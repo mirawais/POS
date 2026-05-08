@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AdminHeader } from '@/components/layout/AdminHeader';
 import { useSession } from 'next-auth/react';
+import Link from 'next/link';
 import { Trash2 } from 'lucide-react';
 
 export default function OrdersPage() {
@@ -14,7 +15,6 @@ export default function OrdersPage() {
   const [orderIdFilter, setOrderIdFilter] = useState('');
   const [expandedSale, setExpandedSale] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<string>('last7days');
-  const [summary, setSummary] = useState<{ totalSales: number; totalTax: number; totalDiscount: number; totalCouponDiscount: number; cashSales: number; cardSales: number; totalRefundAmount: number; netSale: number } | null>(null);
   const [cashiers, setCashiers] = useState<any[]>([]);
   const [selectedCashier, setSelectedCashier] = useState<string>('');
   const [viewMode, setViewMode] = useState<'sales' | 'products' | 'customers'>('sales');
@@ -104,28 +104,6 @@ export default function OrdersPage() {
       }
       const data = await response.json();
       setSales(data);
-
-      // Calculate summary
-      const totalSales = data.reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
-      const totalSubtotal = data.reduce((sum: number, sale: any) => sum + Number(sale.subtotal || 0), 0);
-      const totalTax = data.reduce((sum: number, sale: any) => sum + Number(sale.tax), 0);
-
-      const totalDiscountRaw = data.reduce((sum: number, sale: any) => sum + Number(sale.discount || 0), 0);
-      const totalCouponDiscount = data.reduce((sum: number, sale: any) => sum + Number(sale.couponValue || 0), 0);
-      const totalDiscount = totalDiscountRaw - totalCouponDiscount; // This is manual discount
-
-      const cashSales = data.filter((sale: any) => sale.paymentMethod === 'CASH' || !sale.paymentMethod).reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
-      const cardSales = data.filter((sale: any) => sale.paymentMethod === 'CARD').reduce((sum: number, sale: any) => sum + Number(sale.total), 0);
-
-      const totalRefundAmount = data.reduce((sum: number, sale: any) => {
-        const refundTotal = sale.refunds?.reduce((rSum: number, r: any) => rSum + Number(r.total), 0) || 0;
-        return sum + refundTotal;
-      }, 0);
-
-      // Net Sale = Total Sale - Manual Discount - Coupon Discount - Refund + Tax
-      const netSale = totalSales - totalDiscount - totalCouponDiscount - totalRefundAmount + totalTax;
-
-      setSummary({ totalSales, totalTax, totalDiscount, totalCouponDiscount, cashSales, cardSales, totalRefundAmount, netSale });
     } catch (err: any) {
       setError(err.message || 'An error occurred while fetching sales data');
     } finally {
@@ -273,73 +251,6 @@ export default function OrdersPage() {
   const defaultStartDate = new Date();
   defaultStartDate.setDate(defaultStartDate.getDate() - 30);
   const defaultStartDateStr = defaultStartDate.toISOString().split('T')[0];
-
-
-
-  const productStats = useState(() => {
-    // Calculate product stats whenever sales change
-    if (!sales.length) return [];
-
-    const stats = new Map<string, {
-      id: string;
-      name: string;
-      sku: string;
-      variantName: string | null;
-      quantity: number;
-      total: number;
-      returned: number;
-    }>();
-
-    sales.forEach(sale => {
-      sale.items.forEach((item: any) => {
-        const key = `${item.productId}:${item.variantId || 'base'}`;
-        const existing = stats.get(key);
-
-        // Calculate net contribution of this item (Sales - Returns)
-        // Note: item.total is the final line total. If returned, we should subtract proportional value?
-        // Usually item.total is for the sale line. Returns are tracked separately in `returnedQuantity` but 
-        // `item.total` remains the sale value. 
-        // We should explicitly calculate "Revenue" as (Quantity - Returned) * Price approx, or 
-        // just use item.total. However, if return happens, revenue decreases.
-        // Let's assume item.total is the sale amount. If we want "Net Sales", we might need to deduct returns.
-        // For simplicity and consistency with `Total Sales` summary which sums `sale.total`, we might just sum `item.total`.
-        // BUT strict accounting says Net Sales = Gross - Returns.
-        // The return logic in `app/api/sales` is complex (creates Refund record?).
-        // Checking schema: `RefundItem` links to `SaleItem`. 
-        // The `sales` fetch includes `items`. It doesn't seemingly include `refundItems` deeply nested in the current `fetchSales` (it includes `items.product`, `items.variant`).
-        // IMPORTANT: `item.returnedQuantity` is available on `SaleItem`.
-        // Let's just aggregate `quantity` and `item.total`.
-
-        const qty = item.quantity || 0;
-        const returned = item.returnedQuantity || 0;
-        const amount = Number(item.total) || 0;
-
-        if (existing) {
-          existing.quantity += qty;
-          existing.returned += returned;
-          existing.total += amount;
-          stats.set(key, existing);
-        } else {
-          stats.set(key, {
-            id: item.productId,
-            name: item.product?.name || 'Unknown',
-            sku: item.product?.sku || '-',
-            variantName: item.variant?.name || null,
-            quantity: qty,
-            returned: returned,
-            total: amount
-          });
-        }
-      });
-    });
-
-    return Array.from(stats.values()).sort((a, b) => b.total - a.total);
-  });
-
-  // Re-calculate when sales change requires a simplified useMemo pattern or Effect, 
-  // but since we are inside a functional comp, let's just use a plain variable with useMemo
-  // correcting the syntax above.
-
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader title="Orders" />
@@ -372,9 +283,8 @@ export default function OrdersPage() {
           </div>
         </div>
 
-        {/* Summary Section */}
         <div className="p-4 border rounded bg-white">
-          <h2 className="text-lg font-semibold mb-4">Sales Summary</h2>
+          <h2 className="text-lg font-semibold mb-4">Filters</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
               <label className="block text-sm text-gray-700 mb-1">Date Filter</label>
@@ -490,58 +400,6 @@ export default function OrdersPage() {
               </>
             )}
           </div>
-          {summary && (
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 p-4 bg-blue-50 rounded">
-              <div>
-                <div className="text-sm text-gray-600">Total Sales</div>
-                <div className="text-2xl font-bold text-blue-700">
-                  Rs. {summary.totalSales.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600 font-bold">Net Sale</div>
-                <div className="text-2xl font-bold text-green-700">
-                  Rs. {summary.netSale.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Total Tax</div>
-                <div className="text-2xl font-bold text-green-700">
-                  Rs. {summary.totalTax.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Total Discount</div>
-                <div className="text-2xl font-bold text-red-700">
-                  Rs. {summary.totalDiscount.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Coupon Discount</div>
-                <div className="text-2xl font-bold text-red-700">
-                  Rs. {summary.totalCouponDiscount.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Cash Sales</div>
-                <div className="text-2xl font-bold text-yellow-700">
-                  Rs. {summary.cashSales.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Card Sales</div>
-                <div className="text-2xl font-bold text-purple-700">
-                  Rs. {summary.cardSales.toFixed(2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">Total Refunded</div>
-                <div className="text-2xl font-bold text-orange-700">
-                  Rs. {summary.totalRefundAmount.toFixed(2)}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="p-4 border rounded bg-white space-y-4">
@@ -857,6 +715,7 @@ export default function OrdersPage() {
                   <th className="px-4 py-3 font-semibold text-gray-900 text-right">Orders</th>
                   <th className="px-4 py-3 font-semibold text-gray-900 text-right">Total Spent</th>
                   <th className="px-4 py-3 font-semibold text-gray-900 text-right">Last Visit</th>
+                  <th className="px-4 py-3 font-semibold text-gray-900 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -873,7 +732,9 @@ export default function OrdersPage() {
                         if (!matchName && !matchPhone) return;
                       }
 
-                      const key = (sale.customerName || '') + (sale.customerPhone || '');
+                      const key = sale.customerId
+                        ? `${sale.clientId}:${sale.customerId}`
+                        : `${sale.clientId}:${sale.customerName || ''}:${sale.customerPhone || ''}`;
                       // Only group if we have some data
                       if (!key) return;
 
@@ -887,6 +748,9 @@ export default function OrdersPage() {
                         customers.set(key, existing);
                       } else {
                         customers.set(key, {
+                          customerId: sale.customerId || null,
+                          clientId: sale.clientId || sale.client?.id || null,
+                          clientBusinessType: sale.client?.businessType || null,
                           name: sale.customerName || 'N/A',
                           phone: sale.customerPhone || 'N/A',
                           orders: 1,
@@ -898,7 +762,7 @@ export default function OrdersPage() {
                   });
 
                   if (customers.size === 0) {
-                    return <tr><td colSpan={5} className="px-4 py-3 text-gray-500 text-center">No customer data found in selected sales.</td></tr>;
+                    return <tr><td colSpan={6} className="px-4 py-3 text-gray-500 text-center">No customer data found in selected sales.</td></tr>;
                   }
 
                   return Array.from(customers.values())
@@ -910,6 +774,18 @@ export default function OrdersPage() {
                         <td className="px-4 py-3 text-right">{c.orders}</td>
                         <td className="px-4 py-3 text-right text-blue-700">Rs. {c.spent.toFixed(2)}</td>
                         <td className="px-4 py-3 text-right text-gray-500">{new Date(c.lastVisit).toLocaleString()}</td>
+                        <td className="px-4 py-3 text-right">
+                          {c.clientBusinessType === 'WHOLESALE' && c.clientId && c.customerId ? (
+                            <Link
+                              href={`/super-admin/client/${c.clientId}/customers/${c.customerId}/ledger`}
+                              className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                            >
+                              View Ledger
+                            </Link>
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
+                        </td>
                       </tr>
                     ));
                 })()}
