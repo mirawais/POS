@@ -901,15 +901,32 @@ export default function BillingPage() {
     }
   };
 
-  const handleSearchOrAdd = useCallback((rawTerm: string) => {
+  const handleSearchOrAdd = useCallback(async (rawTerm: string) => {
     const term = rawTerm.trim().toLowerCase();
     if (!term) return false;
-    const found = products.find(
+    const localFound = products.find(
       (p) => p.sku.toLowerCase() === term || p.name.toLowerCase().includes(term)
     );
-    if (found) {
-      addToCart(found);
+    if (localFound) {
+      addToCart(localFound);
       return true;
+    }
+
+    try {
+      const res = await fetch(`/api/products?search=${encodeURIComponent(rawTerm.trim())}`);
+      if (res.ok) {
+        const searchedProducts: Product[] = await res.json();
+        setProducts(searchedProducts);
+        const exactFound = searchedProducts.find(
+          (p) => p.sku.toLowerCase() === term || p.name.toLowerCase().includes(term)
+        );
+        if (exactFound) {
+          addToCart(exactFound);
+          return true;
+        }
+      }
+    } catch (err) {
+      console.error('Search fetch failed', err);
     }
     return false;
   }, [products]);
@@ -963,9 +980,8 @@ export default function BillingPage() {
             showSuccess('SKU scanned successfully');
           } else {
             setSearchInput(scannedValue);
-            const added = handleSearchOrAdd(scannedValue);
+            const added = await handleSearchOrAdd(scannedValue);
             if (!added) {
-              loadProducts(scannedValue);
               showInfo(`Scanned: ${scannedValue}. No exact item match yet.`);
             }
           }
@@ -980,7 +996,7 @@ export default function BillingPage() {
         setScannerError(err?.message || 'Unable to start camera scanner.');
       }
     }
-  }, [closeScanner, handleSearchOrAdd, loadProducts, scannerMode, showInfo, showSuccess]);
+  }, [closeScanner, handleSearchOrAdd, scannerMode, showInfo, showSuccess]);
 
   useEffect(() => {
     if (showScanner) {
@@ -1938,7 +1954,7 @@ export default function BillingPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    handleSearchOrAdd(searchInput);
+                    void handleSearchOrAdd(searchInput);
                   }
                 }}
                 onChange={(e) => {
@@ -2405,17 +2421,18 @@ export default function BillingPage() {
                     <div className="flex items-center gap-2 flex-1 min-w-0">
                       <label className="text-xs text-gray-700 whitespace-nowrap">Disc</label>
                       <select
-                        className="border rounded px-1 py-1 text-xs flex-1 min-w-0"
+                        className="h-7 border rounded px-1 text-[11px] w-[72px] sm:h-auto sm:px-2 sm:text-sm sm:w-auto sm:min-w-[110px]"
                         value={line.discountType || 'AMOUNT'}
                         onChange={(e) => updateItemDiscount(uniqueId, e.target.value as any, line.discountValue || 0)}
                       >
-                        <option value="AMOUNT">Amt</option>
-                        <option value="PERCENT">%</option>
+                        <option value="AMOUNT">Amount</option>
+                        <option value="PERCENT">Percent</option>
                       </select>
                       <input
                         type="number"
                         step="0.01"
-                        className="w-14 border rounded px-1 py-1 text-xs"
+                        min="0"
+                        className="w-28 sm:w-24 border rounded px-2 py-1 text-sm"
                         value={line.discountValue || 0}
                         onChange={(e) =>
                           updateItemDiscount(
@@ -2424,7 +2441,7 @@ export default function BillingPage() {
                             Number(e.target.value)
                           )
                         }
-                        placeholder="Disc"
+                        placeholder="Value"
                       />
                     </div>
                   </div>
@@ -2517,7 +2534,7 @@ export default function BillingPage() {
                 </div>
                 <div className="flex gap-2">
                   <select
-                    className="border rounded px-2 py-1 text-sm"
+                    className="h-7 border rounded px-1 text-[11px] w-[72px] sm:h-auto sm:px-2 sm:text-sm sm:w-auto"
                     value={cartDiscountType}
                     onChange={(e) => setCartDiscountType(e.target.value as any)}
                   >
