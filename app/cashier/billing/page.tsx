@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { useToast } from '@/components/notifications/ToastContainer';
-import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt, ShoppingCart, ArrowLeft, Plus } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCcw, ArrowUpAZ, ArrowDownAZ, ArrowUp, ArrowDown, Check, Receipt, ShoppingCart, ArrowLeft, Plus, Camera, X } from 'lucide-react';
 import ConfirmationModal from '@/components/ConfirmationModal';
 import { formatPrice as baseFormatPrice } from '@/lib/utils';
 
@@ -254,6 +254,12 @@ export default function BillingPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
+  const [searchInput, setSearchInput] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const [scannerMode, setScannerMode] = useState<'search' | 'quickAddSku'>('search');
+  const scannerInstanceRef = useRef<any>(null);
+  const scannerContainerId = 'billing-barcode-scanner';
 
   // Restaurant Mode State
   const [orderType, setOrderType] = useState<'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'>('DINE_IN');
@@ -894,6 +900,101 @@ export default function BillingPage() {
       setTaxId((product as any).defaultTaxId);
     }
   };
+
+  const handleSearchOrAdd = useCallback((rawTerm: string) => {
+    const term = rawTerm.trim().toLowerCase();
+    if (!term) return false;
+    const found = products.find(
+      (p) => p.sku.toLowerCase() === term || p.name.toLowerCase().includes(term)
+    );
+    if (found) {
+      addToCart(found);
+      return true;
+    }
+    return false;
+  }, [products]);
+
+  const stopScanner = useCallback(async () => {
+    const scanner = scannerInstanceRef.current;
+    if (!scanner) return;
+    try {
+      await scanner.stop();
+    } catch (_) {
+      // Scanner may already be stopped; safe to ignore.
+    }
+    try {
+      await scanner.clear();
+    } catch (_) {
+      // Container may already be cleared; safe to ignore.
+    }
+    scannerInstanceRef.current = null;
+  }, []);
+
+  const closeScanner = useCallback(async () => {
+    await stopScanner();
+    setShowScanner(false);
+  }, [stopScanner]);
+
+  const openScanner = useCallback((mode: 'search' | 'quickAddSku') => {
+    setScannerMode(mode);
+    setShowScanner(true);
+  }, []);
+
+  const startScanner = useCallback(async () => {
+    setScannerError('');
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
+      setScannerError('Camera scanning needs HTTPS (or localhost) on mobile browsers.');
+      return;
+    }
+
+    try {
+      const { Html5Qrcode } = await import('html5-qrcode');
+      const scanner = new Html5Qrcode(scannerContainerId, { verbose: false });
+      scannerInstanceRef.current = scanner;
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 12, qrbox: { width: 320, height: 130 }, aspectRatio: 1.7778 },
+        async (decodedText: string) => {
+          const scannedValue = decodedText.trim();
+          await closeScanner();
+          if (scannerMode === 'quickAddSku') {
+            setQuickAddData((prev) => ({ ...prev, sku: scannedValue }));
+            showSuccess('SKU scanned successfully');
+          } else {
+            setSearchInput(scannedValue);
+            const added = handleSearchOrAdd(scannedValue);
+            if (!added) {
+              loadProducts(scannedValue);
+              showInfo(`Scanned: ${scannedValue}. No exact item match yet.`);
+            }
+          }
+        },
+        () => {}
+      );
+    } catch (err: any) {
+      const message = (err?.message || '').toLowerCase();
+      if (message.includes('permission')) {
+        setScannerError('Camera permission denied. Please allow camera access and try again.');
+      } else {
+        setScannerError(err?.message || 'Unable to start camera scanner.');
+      }
+    }
+  }, [closeScanner, handleSearchOrAdd, loadProducts, scannerMode, showInfo, showSuccess]);
+
+  useEffect(() => {
+    if (showScanner) {
+      startScanner();
+    } else {
+      stopScanner();
+    }
+  }, [showScanner, startScanner, stopScanner]);
+
+  useEffect(() => {
+    return () => {
+      stopScanner();
+    };
+  }, [stopScanner]);
 
   const updateQuantity = (uniqueId: string, qty: number) => {
     setCart((prev) => {
@@ -1828,25 +1929,34 @@ export default function BillingPage() {
           </div>
           {/* Search + Controls row - wraps on mobile */}
           <div className="flex flex-col gap-2 mb-2">
-            <input
-              type="text"
-              placeholder="Search or scan..."
-              className="w-full border rounded px-2 py-1 text-sm"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  const term = (e.target as HTMLInputElement).value.toLowerCase();
-                  const found = products.find(
-                    (p) => p.sku.toLowerCase() === term || p.name.toLowerCase().includes(term)
-                  );
-                  if (found) addToCart(found);
-                }
-              }}
-              onChange={(e) => {
-                const term = e.target.value;
-                loadProducts(term);
-              }}
-            />
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search or scan..."
+                value={searchInput}
+                className="w-full border rounded px-2 py-1 pr-10 text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSearchOrAdd(searchInput);
+                  }
+                }}
+                onChange={(e) => {
+                  const term = e.target.value;
+                  setSearchInput(term);
+                  loadProducts(term);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => openScanner('search')}
+                className="absolute inset-y-0 right-1 my-auto h-7 w-7 rounded-md text-gray-600 hover:bg-gray-100 flex items-center justify-center"
+                aria-label="Open camera scanner"
+                title="Scan barcode"
+              >
+                <Camera size={16} />
+              </button>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center gap-1">
                 <label className="text-xs text-gray-600 whitespace-nowrap">Per page:</label>
@@ -2661,6 +2771,33 @@ export default function BillingPage() {
         </div>
       )}
 
+      {showScanner && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[350] p-4">
+          <div className="bg-white rounded-lg w-full max-w-md p-4 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-semibold">
+                {scannerMode === 'quickAddSku' ? 'Scan SKU Barcode' : 'Scan Product Barcode'}
+              </h3>
+              <button
+                type="button"
+                onClick={closeScanner}
+                className="p-1 rounded hover:bg-gray-100"
+                aria-label="Close scanner"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div id={scannerContainerId} className="w-full overflow-hidden rounded border bg-black min-h-[240px]" />
+            <p className="text-xs text-gray-500 mt-2">
+              Point camera at the barcode. Works best on HTTPS (or localhost) with rear camera access.
+            </p>
+            {scannerError && (
+              <p className="text-xs text-red-600 mt-2">{scannerError}</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Cart Name Prompt Modal */}
       {showCartNamePrompt && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[300]">
@@ -2750,13 +2887,26 @@ export default function BillingPage() {
               </div>
               <div className="space-y-1 text-left">
                 <label className="text-sm font-semibold text-gray-700">SKU (Optional)</label>
-                <input
-                  type="text"
-                  value={quickAddData.sku}
-                  onChange={e => setQuickAddData({ ...quickAddData, sku: e.target.value })}
-                  className="w-full px-3 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
-                  placeholder="Leave empty for auto-gen"
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={quickAddData.sku}
+                    onChange={e => setQuickAddData({ ...quickAddData, sku: e.target.value })}
+                    className="w-full px-3 py-2.5 pr-10 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-base"
+                    placeholder="Leave empty for auto-gen"
+                  />
+                  {isWholesale && (
+                    <button
+                      type="button"
+                      onClick={() => openScanner('quickAddSku')}
+                      className="absolute inset-y-0 right-2 my-auto h-8 w-8 rounded-md text-gray-600 hover:bg-gray-100 flex items-center justify-center"
+                      aria-label="Scan SKU barcode"
+                      title="Scan SKU"
+                    >
+                      <Camera size={16} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
