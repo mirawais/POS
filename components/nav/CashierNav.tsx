@@ -14,6 +14,7 @@ const groceryLinks = [
   { href: '/cashier/exchanges', label: 'Returns/Exchanges' },
   { href: '/cashier/refunds', label: 'Refunds' },
   { href: '/cashier/pending-checkouts', label: 'Pending Checkouts' },
+  { href: '/cashier/barcode-labels', label: 'Barcode Labels' },
   { href: '/cashier/summary', label: 'Summary' },
   { href: '/cashier/settings', label: 'Settings' },
 ];
@@ -64,7 +65,11 @@ export function CashierNav() {
       const allowedLabels = ['Billing', 'Kitchen Orders', 'Summary', 'Settings'];
       return allowedLabels.includes(link.label);
     }
-
+    // Barcode Labels: sirf Grocery/Wholesale — Cashier, Admin, Manager
+    if (link.label === 'Barcode Labels') {
+      const isManager = role === 'MANAGER';
+      return !isRestaurant && !isCloudKitchen && (isCashier || isAdmin || isManager);
+    }
     // RESTRICTED: Restaurant Cashiers/Admins only
     if (['Pending Checkouts', 'Delivery Manager', 'Riders'].includes(link.label)) {
       return isRestaurant && (isCashier || isAdmin);

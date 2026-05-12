@@ -19,3 +19,24 @@ html, body, :root { height: 100%; }
   animation: slide-in 0.3s ease-out;
 }
 
+
+@media print {
+  .barcode-label {
+    break-inside: avoid !important;
+    border: 1px solid #000 !important;
+    background: #fff !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .barcode-label svg,
+  .barcode-label svg * {
+    visibility: visible !important;
+    display: block !important;
+  }
+
+  @page {
+    margin: 3mm;
+    size: auto;
+  }
+}

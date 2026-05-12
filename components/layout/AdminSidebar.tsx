@@ -20,6 +20,7 @@ import {
   ChevronRight,
   FileText,
   ShoppingCart,
+  Barcode,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -53,6 +54,7 @@ const menuGroups: MenuGroup[] = [
     title: 'Inventory',
     items: [
       { href: '/admin/products', label: 'Products', icon: Package },
+      { href: '/admin/barcode-labels', label: 'Barcode Labels', icon: Barcode },
       { href: '/admin/categories', label: 'Categories', icon: FolderTree },
       { href: '/admin/raw-materials', label: 'Raw Materials', icon: Boxes },
       { href: '/admin/settings/variant-attributes', label: 'Variant Attributes', icon: Tags },
@@ -80,7 +82,9 @@ const menuGroups: MenuGroup[] = [
 export function AdminSidebar() {
   const pathname = usePathname();
   const { data: session } = useSession();
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set(['Overview', 'Inventory', 'Sales & Finance', 'Management']));
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(menuGroups.map((group) => group.title))
+  );
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   const toggleGroup = (title: string) => {
@@ -143,13 +147,22 @@ export function AdminSidebar() {
               const permissions = (session?.user as any)?.permissions || {};
 
               const filteredItems = group.items.filter(item => {
-                const isRestaurant = (session?.user as any)?.businessType !== 'GROCERY';
-                const role = session?.user?.role;
+              const businessType = (session?.user as any)?.businessType;
+              const isRestaurant = businessType !== 'GROCERY';
+              const role = session?.user?.role;
 
                 // 1. Waiter-Restaurant Case: Hide restricted items (Orders)
                 if (isRestaurant && role === 'WAITER') {
-                  const allowedHrefs = ['/admin/dashboard', '/admin/reports']; // Minimal view
+                  const allowedHrefs = ['/admin/dashboard', '/admin/reports'];
                   return allowedHrefs.includes(item.href);
+                }
+
+                // ✅ Barcode Labels: sirf Grocery aur Wholesale — sab roles ke liye
+                if (item.href === '/admin/barcode-labels') {
+                  const allowed = businessType === 'GROCERY' || businessType === 'WHOLESALE';
+                  if (!allowed) return false;
+                  if (!isManager) return true;
+                  return permissions.manage_products;
                 }
 
                 if (!isManager) return true;
